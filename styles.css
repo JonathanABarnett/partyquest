@@ -122,6 +122,62 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .log-fumble { background: rgba(196, 74, 62, 0.12); color: var(--doom); padding-left: 6px; border-left: 2px solid var(--doom); }
 .log-major { background: rgba(224, 188, 115, 0.18); color: var(--gold); font-weight: 600; padding: 4px 6px; border-radius: 4px; margin: 2px 0; }
 
+/* ---- Class quick-reference popover ---- */
+.class-info-wrap { position: relative; }
+.class-label {
+  cursor: help;
+  text-decoration: underline dotted var(--gold-dim);
+  text-underline-offset: 2px;
+  color: var(--text);
+}
+.class-info-wrap .class-popover {
+  position: absolute;
+  top: 100%; left: 0;
+  margin-top: 8px;
+  min-width: 260px; max-width: 320px;
+  background: linear-gradient(180deg, #3d3024 0%, #2a2218 100%);
+  border: 1px solid var(--gold);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  z-index: 60;
+  opacity: 0; visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 0.15s, transform 0.15s;
+  pointer-events: none;
+  font-size: 13px;
+}
+.class-info-wrap:hover .class-popover {
+  opacity: 1; visibility: visible; transform: translateY(0);
+}
+.class-popover-head {
+  display: flex; gap: 10px; align-items: center; margin-bottom: 8px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+.class-popover-icon {
+  font-size: 28px;
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel-3); border: 1px solid var(--border-2);
+  border-radius: 50%;
+}
+.class-popover-name { font-family: 'Georgia', serif; font-size: 16px; color: var(--gold); font-weight: 700; }
+.class-popover-stats {
+  width: 100%; border-collapse: collapse; margin: 6px 0;
+}
+.class-popover-stats td {
+  padding: 2px 8px; border-bottom: 1px dashed rgba(255,255,255,0.06); font-size: 12px;
+}
+.class-popover-stats td:first-child { color: var(--gold-dim); width: 50%; }
+.class-popover-ability {
+  margin: 8px 0 6px;
+  padding: 6px 8px;
+  background: rgba(224, 188, 115, 0.1);
+  border-radius: 4px;
+}
+.class-popover-race { font-size: 12px; color: var(--muted); }
+.class-popover-race b { color: var(--gold); }
+
 .sidebar { padding: 16px; background: var(--panel); border-right: 2px solid var(--border-2); overflow-y: auto; max-height: calc(100vh - 70px); }
 .main { padding: 18px; overflow-y: auto; max-height: calc(100vh - 70px); }
 
@@ -163,7 +219,54 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .help-list b { color: var(--gold); }
 .help-list em { font-style: italic; color: var(--accent-2); }
 
-/* ---- Map / Tiles ---- */
+/* ---- Map ring layout (≥ 900px) ---- */
+.map-ring {
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+  aspect-ratio: 1;
+  margin: 0 auto 8px;
+}
+.map-lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.map-lines line {
+  stroke: var(--border-2);
+  stroke-width: 0.5;
+  stroke-dasharray: 1.2 1.2;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.7;
+}
+.map-ring .tile {
+  position: absolute;
+  width: 30%;
+  height: 28%;
+  min-height: 0;
+  transform: translate(-50%, -50%);
+  transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s, outline 0.15s;
+}
+.map-ring .tile.capital {
+  left: 50%; top: 50%;
+  z-index: 2;
+}
+.map-ring .tile.region {
+  /* Position on a circle via double-rotate trick */
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%)
+    rotate(var(--angle-deg, 0deg))
+    translate(0, -180%)
+    rotate(calc(-1 * var(--angle-deg, 0deg)));
+}
+.tile.adj-hover {
+  outline: 2px solid var(--gold-dim);
+  outline-offset: -4px;
+}
+
+/* Old grid layout kept for mobile fallback */
 .map-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -229,11 +332,14 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
   outline-offset: -6px;
 }
 .tile.move-target:hover {
-  transform: translateY(-3px);
   box-shadow: 0 8px 16px rgba(152, 168, 122, 0.4), inset 0 0 20px rgba(152, 168, 122, 0.15);
   border-color: var(--accent);
 }
 .tile.move-target:hover .tile-move-hint { opacity: 1; }
+
+/* Region tiles use rotate-translate, so the grid-layout transform-on-hover
+   needs a different selector to avoid breaking ring positioning. */
+.map-grid .tile.move-target:hover { transform: translateY(-3px); }
 
 .player-chip {
   color: var(--ink);
@@ -410,6 +516,25 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
   .control-panel { position: static; }
   .player-actions button { font-size: 11px; padding: 6px 10px; }
   .map-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
-  .tile { min-height: 120px; }
   .tile-icon { font-size: 32px; }
+
+  /* Collapse the ring back to a stacked grid on narrow viewports — absolute
+     positioning + adjacency lines look bad below 900px. */
+  .map-ring {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    max-width: none;
+    aspect-ratio: auto;
+  }
+  .map-ring .tile,
+  .map-ring .tile.capital,
+  .map-ring .tile.region {
+    position: static;
+    width: auto; height: auto;
+    min-height: 120px;
+    transform: none !important;
+  }
+  .map-lines { display: none; }
+  .class-info-wrap .class-popover { position: static; opacity: 1; visibility: visible; transform: none; margin-top: 6px; min-width: 0; }
 }

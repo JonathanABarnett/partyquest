@@ -235,21 +235,35 @@ function renderMap(state, onAction) {
   const el = document.createElement('div');
   el.className = 'panel map-panel';
   el.innerHTML = `<h3>The Realm <span class="muted small">— click a glowing adjacent tile to move</span></h3>`;
-  const grid = document.createElement('div');
-  grid.className = 'map-grid';
+  const ring = document.createElement('div');
+  ring.className = 'map-ring';
+  // SVG layer with adjacency spokes (capital→region) + ring edges (region→region).
+  ring.appendChild(buildAdjacencyLines(state.map.regions.length));
 
   const active = activePlayer(state);
   const legal = (active && !state.outcome && (state.phase === 'player' || state.phase === 'final')) ? legalActions(state) : [];
   const moveOptions = new Set(legal.filter((a) => a.type === 'move').map((a) => a.to));
 
   const cells = [state.map.capital, ...state.map.regions];
-  cells.forEach((loc) => {
+  const regionCount = state.map.regions.length;
+  cells.forEach((loc, idx) => {
     const t = TERRAIN[loc.terrain] || TERRAIN.plain;
     const tile = document.createElement('div');
     tile.className = 'tile';
     tile.style.background = t.bg;
+    tile.dataset.locId = loc.id;
     if (state.finalAct?.location === loc.id) tile.classList.add('final-act');
-    if (loc.id === 'capital') tile.classList.add('capital');
+    if (loc.id === 'capital') {
+      tile.classList.add('capital');
+    } else {
+      // idx 0 = capital, so region index = idx - 1
+      const regionIdx = idx - 1;
+      const angleDeg = (360 / regionCount) * regionIdx - 90;
+      tile.classList.add('region');
+      tile.style.setProperty('--angle-deg', `${angleDeg}deg`);
+    }
+    // Adjacency listing on each tile so hover can highlight neighbors
+    tile.dataset.adjacent = loc.adjacent.join(',');
     if (moveOptions.has(loc.id)) {
       tile.classList.add('move-target');
       tile.addEventListener('click', () => onAction({ type: 'move', to: loc.id }));
@@ -273,10 +287,43 @@ function renderMap(state, onAction) {
       <div class="tile-players">${here.map((p) => `<span class="player-chip" style="background:${RACE_COLOR[p.race.id] || '#d4a574'}" title="${p.name} (${p.race.name} ${p.class.name})">${CLASS_ICON[p.class.id] || '◆'} ${p.name}</span>`).join('')}</div>
       ${moveOptions.has(loc.id) ? '<div class="tile-move-hint">→ move here</div>' : ''}
     `;
-    grid.appendChild(tile);
+    // Adjacency hover: highlight neighbor tiles
+    tile.addEventListener('mouseenter', () => {
+      const adjacents = (tile.dataset.adjacent || '').split(',');
+      ring.querySelectorAll('.tile').forEach((t) => {
+        if (adjacents.includes(t.dataset.locId)) t.classList.add('adj-hover');
+      });
+    });
+    tile.addEventListener('mouseleave', () => {
+      ring.querySelectorAll('.tile.adj-hover').forEach((t) => t.classList.remove('adj-hover'));
+    });
+    ring.appendChild(tile);
   });
-  el.appendChild(grid);
+  el.appendChild(ring);
   return el;
+}
+
+// SVG layer drawn behind tiles. Coordinates are in 0–100 space and the SVG
+// stretches to fill the ring; tile centers are at the same percent positions.
+function buildAdjacencyLines(regionCount) {
+  const lines = [];
+  const cx = 50, cy = 50;
+  const r = 35; // distance from center to region centers (percentage of viewBox)
+  const positions = [];
+  for (let i = 0; i < regionCount; i++) {
+    const a = (2 * Math.PI / regionCount) * i - Math.PI / 2;
+    positions.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
+  }
+  // Spokes — capital to each region
+  positions.forEach((p) => lines.push(`<line x1="${cx}" y1="${cy}" x2="${p.x.toFixed(2)}" y2="${p.y.toFixed(2)}" />`));
+  // Ring edges — each region to the next
+  for (let i = 0; i < regionCount; i++) {
+    const a = positions[i], b = positions[(i + 1) % regionCount];
+    lines.push(`<line x1="${a.x.toFixed(2)}" y1="${a.y.toFixed(2)}" x2="${b.x.toFixed(2)}" y2="${b.y.toFixed(2)}" />`);
+  }
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `<svg class="map-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines.join('')}</svg>`;
+  return wrap.firstChild;
 }
 
 function renderPlayers(state, onAction) {
@@ -319,10 +366,11 @@ function renderPlayers(state, onAction) {
       <div class="player-head">
         <div class="player-id">
           <div class="player-icon" style="border-color:${raceColor}">${icon}</div>
-          <div>
+          <div class="class-info-wrap">
             <div class="player-name">${p.name}</div>
-            <div class="muted small">${p.race.name} ${p.class.name} · ${p.alignment}</div>
+            <div class="muted small">${p.race.name} <span class="class-label">${p.class.name}</span> · ${p.alignment}</div>
             <div class="muted small">policy <code>${p.policy}</code>${p.pendingBonus ? ` · <span class="badge">+${p.pendingBonus.value} ${p.pendingBonus.stat || ''} next</span>` : ''}${p.pendingReroll ? ' · <span class="badge">reroll ready</span>' : ''}</div>
+            ${renderClassPopover(p)}
           </div>
         </div>
         <div class="player-vitals">
@@ -373,6 +421,32 @@ function renderActionButtons(legal, player) {
   buttons.push({ a: { type: 'end_turn' }, label: '➜ End turn', cls: 'subtle', help: 'Skip remaining actions and pass to the next player.' });
 
   return buttons.map((b) => `<button class="${b.cls || ''}" title="${b.help || ''}" data-action='${JSON.stringify(b.a).replace(/'/g, "&#39;")}'>${b.label}</button>`).join('');
+}
+
+// Class quick-reference popover anchored to the class label. Shows on hover.
+function renderClassPopover(p) {
+  const cls = p.class;
+  const race = p.race;
+  const stats = ['STR', 'DEX', 'INT', 'CHA']
+    .map((k) => `<tr><td>${k}</td><td><b>${p.stats[k] >= 0 ? '+' : ''}${p.stats[k]}</b></td></tr>`)
+    .join('');
+  return `<div class="class-popover">
+    <div class="class-popover-head">
+      <span class="class-popover-icon">${CLASS_ICON[cls.id] || '◆'}</span>
+      <div>
+        <div class="class-popover-name">${cls.name}</div>
+        <div class="muted small">Max HP <b>${cls.hp}</b> · primary <b>${cls.primary}</b> · secondary <b>${cls.secondary}</b></div>
+      </div>
+    </div>
+    <table class="class-popover-stats">${stats}</table>
+    <div class="class-popover-ability">
+      <div class="muted small">Signature ability</div>
+      <div>✦ ${describeClassAbility(cls.ability)}</div>
+    </div>
+    <div class="class-popover-race">
+      <span class="muted small">Race</span> <b>${race.name}</b> — ${race.flavor}
+    </div>
+  </div>`;
 }
 
 function describeClassAbility(ab) {

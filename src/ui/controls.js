@@ -6,15 +6,21 @@ import { pickByPolicy } from '../ai/policies.js';
 import { runBatch, runVarianceCheck, runSweep } from '../sim/batch.js';
 import { legalActions } from '../engine/actions.js';
 import { activePlayer } from '../engine/state.js';
+import { createTutorial } from './tutorial.js';
 
 export function mountControls(root, { onNewState }) {
   let state = null;
   let configOverride = {}; // user-tweakable dials from settings panel
+  const tutorial = createTutorial();
+  tutorial.setRenderHook(() => onNewState(state));
 
   const ctrl = document.createElement('div');
   ctrl.className = 'control-panel panel';
   ctrl.innerHTML = `
-    <h3>Controls</h3>
+    <div class="control-head">
+      <h3>Controls</h3>
+      <button id="startTutorial" class="link-btn" title="Walk through how to play with an interactive 10-step coach.">▶ Tutorial</button>
+    </div>
     <div class="control-row">
       <label>Players
         <select id="playerCount">
@@ -138,6 +144,9 @@ export function mountControls(root, { onNewState }) {
     if (!state || state.outcome) return;
     if (state.phase !== 'player' && state.phase !== 'final') return;
     step(state, () => action);
+    // Let the tutorial advance on this action BEFORE auto-AI fires, so the
+    // tutorial sees the user's action (not a subsequent AI's).
+    tutorial.onAction(action, state);
     // After a manual action, run any AI players whose turn comes up next.
     autoAdvanceAI();
     refreshActionList();
@@ -331,9 +340,26 @@ export function mountControls(root, { onNewState }) {
   $('runSweep').addEventListener('click', runSweepPreset);
   $('applySettings').addEventListener('click', applySettings);
   $('resetSettings').addEventListener('click', resetSettings);
+  $('startTutorial').addEventListener('click', () => {
+    // Restart on a known-friendly seed so the tutorial flow is predictable.
+    newGame({ seed: 7 });
+    tutorial.start();
+  });
 
   // Start with one game ready to go
   newGame();
+
+  // First-visit auto-launch: pop the tutorial after the initial newGame
+  // has finished rendering. localStorage flag keeps it a one-time thing.
+  if (tutorial.isFirstVisit()) {
+    // Defer one tick so the first render lands before the tutorial overlay
+    setTimeout(() => {
+      // Switch to a fixed friendly seed so first-time players see a
+      // predictable game state.
+      newGame({ seed: 7 });
+      tutorial.start();
+    }, 50);
+  }
 
   return {
     refresh: refreshActionList,
@@ -343,6 +369,7 @@ export function mountControls(root, { onNewState }) {
     getConfigOverride,
     newGame,
     replaySeed: (seed) => newGame({ seed }),
+    tutorial,
   };
 }
 

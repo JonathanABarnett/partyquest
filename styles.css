@@ -56,8 +56,71 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
     repeating-linear-gradient(45deg, transparent 0 10px, rgba(255,255,255,0.01) 10px 12px);
   box-shadow: 0 4px 8px rgba(0,0,0,0.3);
 }
-.app-header h1 { font-size: 28px; color: var(--gold); text-shadow: 0 2px 4px rgba(0,0,0,0.5); letter-spacing: 0.03em; }
-.app-header .tagline { color: var(--muted); font-style: italic; }
+.app-header h1 { font-size: 32px; color: var(--gold); text-shadow: 0 2px 8px rgba(0,0,0,0.6), 0 0 24px rgba(224, 188, 115, 0.3); letter-spacing: 0.05em; margin: 0 16px; }
+.app-header .hero { display: flex; align-items: center; gap: 4px; }
+.app-header .hero-flourish-left, .app-header .hero-flourish-right { width: 120px; height: 28px; color: var(--gold-dim); flex-shrink: 0; }
+.app-header .tagline { color: var(--muted); font-style: italic; font-family: 'Georgia', serif; }
+
+/* ---- Tutorial banner ---- */
+.tutorial-banner {
+  background: linear-gradient(180deg, #4a3a28 0%, #3d3024 100%);
+  border: 2px solid var(--gold);
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  box-shadow: 0 4px 16px rgba(224, 188, 115, 0.25), inset 0 0 24px rgba(224, 188, 115, 0.08);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+}
+.tutorial-progress {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em;
+  color: var(--gold-dim); margin-bottom: 8px;
+}
+.tutorial-step-num { font-weight: 700; }
+.tutorial-title { font-family: 'Georgia', serif; font-size: 18px; color: var(--gold); margin-bottom: 6px; }
+.tutorial-body { color: var(--text); font-size: 14px; line-height: 1.55; margin-bottom: 10px; }
+.tutorial-body b { color: var(--gold); }
+.tutorial-body em { color: var(--accent-2); font-style: italic; }
+.tutorial-actions { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+.tutorial-actions button.primary {
+  background: var(--gold); color: var(--ink); border-color: var(--gold);
+  font-weight: 700; padding: 8px 16px; border-radius: 6px;
+}
+.tutorial-actions button.primary:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+/* Pulse highlight on tutorial target */
+.tutorial-target {
+  position: relative;
+  z-index: 10;
+  animation: tutorial-pulse 1.6s ease-in-out infinite;
+}
+@keyframes tutorial-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(224, 188, 115, 0.4), 0 0 12px rgba(224, 188, 115, 0.2); }
+  50% { box-shadow: 0 0 0 4px rgba(224, 188, 115, 0.85), 0 0 24px rgba(224, 188, 115, 0.5); }
+}
+
+/* Sidebar control head with Tutorial button */
+.control-head {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 8px;
+}
+.control-head h3 { margin: 0; }
+.control-head .link-btn { font-size: 12px; }
+
+/* Dice graphics in log */
+.dice-pair { display: inline-flex; gap: 3px; vertical-align: middle; margin: 0 4px; }
+.die { width: 16px; height: 16px; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.4)); }
+.roll-result { color: var(--gold); font-weight: 600; }
+
+/* Log emphasis by outcome */
+.log-line { padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,0.06); }
+.log-success { color: var(--accent-2); }
+.log-failure { color: #d49a9a; }
+.log-crit { background: rgba(224, 188, 115, 0.12); color: var(--gold); padding-left: 6px; border-left: 2px solid var(--gold); }
+.log-fumble { background: rgba(196, 74, 62, 0.12); color: var(--doom); padding-left: 6px; border-left: 2px solid var(--doom); }
+.log-major { background: rgba(224, 188, 115, 0.18); color: var(--gold); font-weight: 600; padding: 4px 6px; border-radius: 4px; margin: 2px 0; }
 
 .sidebar { padding: 16px; background: var(--panel); border-right: 2px solid var(--border-2); overflow-y: auto; max-height: calc(100vh - 70px); }
 .main { padding: 18px; overflow-y: auto; max-height: calc(100vh - 70px); }

@@ -31,7 +31,9 @@ const RACE_COLOR = {
 
 export function renderAll(state, root, ctx = {}) {
   const onAction = ctx.onAction || (() => {});
+  const tutorial = ctx.tutorial;
   root.innerHTML = '';
+  if (tutorial?.current()) root.appendChild(renderTutorialBanner(tutorial));
   if (state.outcome) root.appendChild(renderGameOver(state, ctx));
   root.appendChild(renderHeader(state));
   root.appendChild(renderHint(state));
@@ -40,6 +42,44 @@ export function renderAll(state, root, ctx = {}) {
   root.appendChild(renderPlayers(state, onAction));
   root.appendChild(renderTechniquesRow(state, onAction));
   root.appendChild(renderLog(state));
+  // After the DOM is mounted, apply pulse to the tutorial target element.
+  if (tutorial?.current()) {
+    requestAnimationFrame(() => applyTutorialHighlight(tutorial.current()));
+  }
+}
+
+function renderTutorialBanner(tutorial) {
+  const step = tutorial.current();
+  const idx = tutorial.stepIndex();
+  const total = tutorial.totalSteps;
+  const el = document.createElement('div');
+  el.className = 'tutorial-banner';
+  const isAuto = typeof step.advanceOn === 'function';
+  el.innerHTML = `
+    <div class="tutorial-progress">
+      <span class="tutorial-step-num">Tutorial · step ${idx + 1} of ${total}</span>
+      <button class="link-btn" data-tutorial="skip">Skip</button>
+    </div>
+    <div class="tutorial-title">${step.title}</div>
+    <div class="tutorial-body">${step.body}</div>
+    <div class="tutorial-actions">
+      ${isAuto
+        ? `<span class="muted small">(advances automatically when you act)</span>`
+        : `<button class="primary" data-tutorial="next">Next →</button>`
+      }
+    </div>
+  `;
+  el.querySelector('[data-tutorial="skip"]').addEventListener('click', () => tutorial.stop());
+  el.querySelector('[data-tutorial="next"]')?.addEventListener('click', () => tutorial.next());
+  return el;
+}
+
+function applyTutorialHighlight(step) {
+  // Strip any previous highlight
+  document.querySelectorAll('.tutorial-target').forEach((e) => e.classList.remove('tutorial-target'));
+  if (!step.target) return;
+  const t = document.querySelector(step.target);
+  if (t) t.classList.add('tutorial-target');
 }
 
 function renderHint(state) {
@@ -404,12 +444,48 @@ function renderLog(state) {
   recent.forEach((entry) => {
     const line = document.createElement('div');
     line.className = 'log-line';
-    line.innerHTML = `<span class="muted small">r${entry.round}</span> ${escapeHtml(entry.msg)}`;
+    line.innerHTML = `<span class="muted small">r${entry.round}</span> ${enrichLog(entry.msg)}`;
+    if (/critical/.test(entry.msg)) line.classList.add('log-crit');
+    else if (/fumble/.test(entry.msg)) line.classList.add('log-fumble');
+    else if (/success/.test(entry.msg)) line.classList.add('log-success');
+    else if (/failure/.test(entry.msg)) line.classList.add('log-failure');
+    if (/Final Act|resolution complete|Game over|FINAL ACT/i.test(entry.msg)) line.classList.add('log-major');
     list.appendChild(line);
   });
   el.appendChild(list);
   requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
   return el;
+}
+
+// Replace bare roll notation like `rolled 3+2=5` with a small dice graphic.
+const ROLL_RE = /rolled (\d+)\+(\d+)=(\d+)/g;
+function enrichLog(msg) {
+  let html = escapeHtml(msg);
+  html = html.replace(ROLL_RE, (_m, total, bonus, sum) => {
+    // The roll text is "rolled <raw>+<bonus>=<total>" where raw = d1+d2.
+    // We don't have d1/d2 separately, so split the raw value into two faces
+    // visually (top 1–6 then remainder, both clamped). This is a UI flourish,
+    // not the source of truth.
+    const raw = parseInt(total, 10);
+    const d1 = Math.max(1, Math.min(6, Math.ceil(raw / 2)));
+    const d2 = Math.max(1, Math.min(6, raw - d1));
+    return `<span class="dice-pair">${diceSvg(d1)}${diceSvg(d2)}</span><span class="roll-result">+${escapeHtml(bonus)} = <b>${escapeHtml(sum)}</b></span>`;
+  });
+  return html;
+}
+
+const DIE_DOTS = {
+  1: [[12, 12]],
+  2: [[6, 6], [18, 18]],
+  3: [[6, 6], [12, 12], [18, 18]],
+  4: [[6, 6], [18, 6], [6, 18], [18, 18]],
+  5: [[6, 6], [18, 6], [12, 12], [6, 18], [18, 18]],
+  6: [[6, 6], [18, 6], [6, 12], [18, 12], [6, 18], [18, 18]],
+};
+function diceSvg(face) {
+  const dots = DIE_DOTS[face] || DIE_DOTS[1];
+  const dotsXml = dots.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="2.2" fill="#1a1208"/>`).join('');
+  return `<svg class="die" viewBox="0 0 24 24" aria-hidden="true"><rect x="1.5" y="1.5" width="21" height="21" rx="4" fill="#e0bc73" stroke="#8a6f3e" stroke-width="1"/>${dotsXml}</svg>`;
 }
 
 function wrapPanel(cls, inner) {

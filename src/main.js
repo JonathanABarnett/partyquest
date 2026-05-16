@@ -10,11 +10,16 @@ import { pickByPolicy } from './ai/policies.js';
 const stateRoot = document.getElementById('state-root');
 const controlRoot = document.getElementById('control-root');
 
-const api = mountControls(controlRoot, {
+// `let` so the callback closure can reference `api` (undefined during the
+// initial onNewState fire from inside mountControls). `const` would put `api`
+// in the TDZ and throw.
+let api;
+api = mountControls(controlRoot, {
   onNewState: (state) => renderAll(state, stateRoot, {
-    onAction: (action) => api.dispatch(action),
-    onNewGame: () => api.newGame(),
-    onReplaySeed: (seed) => api.replaySeed(seed),
+    onAction: (action) => api?.dispatch(action),
+    onNewGame: () => api?.newGame(),
+    onReplaySeed: (seed) => api?.replaySeed(seed),
+    tutorial: api?.tutorial,
   }),
 });
 

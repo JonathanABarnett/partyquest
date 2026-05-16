@@ -7,6 +7,7 @@ import { runBatch, runVarianceCheck, runSweep } from '../sim/batch.js';
 import { legalActions } from '../engine/actions.js';
 import { activePlayer } from '../engine/state.js';
 import { createTutorial, TUTORIAL_CONFIG } from './tutorial.js';
+import { checkLogForToasts, resetToastTracking } from './toasts.js';
 import { saveState, loadSavedState, clearSavedState, recordOutcome, loadRecord, resetRecord, saveSlot, loadSlot, listSlots, clearSlot, renameSlot, saveAutoFinalActSnapshot, loadAutoFinalActSnapshot, getAutoFinalActMeta, clearAutoFinalActSnapshot } from '../engine/persistence.js';
 
 export function mountControls(root, { onNewState }) {
@@ -18,11 +19,12 @@ export function mountControls(root, { onNewState }) {
   // Wrap onNewState so persistence and outcome recording fire on every
   // render. Tutorial and dispatch all go through this single path.
   const userOnNewState = onNewState;
-  // Wrapped to record outcomes and clear save on game-over. The actual save
-  // happens inside dispatch() — saving on every render would overwrite any
-  // prior in-progress save before the player has a chance to click Resume.
+  // Wrapped to record outcomes, auto-snapshots, toasts, and the resume/slot
+  // button refresh on every render.
   onNewState = (s) => {
     if (s) {
+      // Toasts — scan new log entries for notable events.
+      if (!replaySession) checkLogForToasts(s); // skip during replay (too noisy)
       // Auto-snapshot once, the moment Final Act first triggers (works for
       // both dispatch-driven play and AI-driven play like playOut/step*).
       // Don't overwrite an existing snapshot from the same seed — that
@@ -155,6 +157,7 @@ export function mountControls(root, { onNewState }) {
       policy: i < humans ? 'manual' : aiPolicy,
     }));
     state = setupGame({ seed, players, config: configOverride });
+    resetToastTracking();
     // Auto-run World phase 1 so the page loads in Player phase with action
     // buttons live, then auto-advance through any leading AI players so the
     // first manual player sees the action UI immediately.
@@ -164,47 +167,90 @@ export function mountControls(root, { onNewState }) {
     onNewState(state);
   }
 
-  // Restore an in-progress saved game. Called from the "Resume" button.
   // ---- Replay viewer ----
-  let replayTimer = null;
+  let replaySession = null; // { history, idx }
+  let replayTimer   = null;
+  let replayPaused  = false;
+  let replaySpeedMs = 500;  // 1× default
+
   function startReplay(snapshot) {
     if (!snapshot?.actionHistory?.length) return;
     stopReplay();
-    // Recreate a fresh state with the same seed/config/players. We can't
-    // just walk the saved state — the engine's step machine has to apply
-    // each action again to keep state consistent.
     const playersDef = snapshot.players.map((p) => ({
       name: p.name, policy: p.policy,
       race: p.race?.id, class: p.class?.id, alignment: p.alignment,
     }));
     state = setupGame({ seed: snapshot.seed, players: playersDef, config: snapshot.config });
     refreshActionList();
+    replaySession = { history: snapshot.actionHistory.slice(), idx: 0 };
+    replayPaused  = false;
     onNewState(state);
-    const history = snapshot.actionHistory.slice();
-    let idx = 0;
-    const STEP_MS = 500;
-    replayTimer = setInterval(() => {
-      if (idx >= history.length || state.outcome) {
-        stopReplay();
-        return;
-      }
-      const item = history[idx++];
-      if (item.phase === 'world') {
-        // World phases auto-run from the step machine, so just advance.
-        step(state, decisionFn);
-      } else {
-        // Drive the engine with the recorded action.
-        step(state, () => item.action);
-      }
-      refreshActionList();
-      onNewState(state);
-    }, STEP_MS);
+    _scheduleReplayStep();
   }
+
+  function _applyNextReplayStep() {
+    if (!replaySession) return false;
+    const { history } = replaySession;
+    if (replaySession.idx >= history.length || state.outcome) return false;
+    const item = history[replaySession.idx++];
+    if (item.phase === 'world') step(state, decisionFn);
+    else step(state, () => item.action);
+    refreshActionList();
+    return replaySession.idx < history.length && !state.outcome;
+  }
+
+  function _scheduleReplayStep() {
+    if (!replaySession || replayPaused) return;
+    replayTimer = setTimeout(() => {
+      if (!replaySession || replayPaused) return;
+      const hasMore = _applyNextReplayStep();
+      onNewState(state);
+      if (hasMore) _scheduleReplayStep();
+      else stopReplay();
+    }, replaySpeedMs);
+  }
+
+  function pauseReplay() {
+    if (!replaySession) return;
+    replayPaused = true;
+    if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
+    onNewState(state);
+  }
+
+  function resumeReplay() {
+    if (!replaySession || !replayPaused) return;
+    replayPaused = false;
+    _scheduleReplayStep();
+    onNewState(state);
+  }
+
+  function stepForwardReplay() {
+    if (!replaySession) return;
+    if (!replayPaused) {
+      replayPaused = true;
+      if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
+    }
+    const hasMore = _applyNextReplayStep();
+    onNewState(state);
+    if (!hasMore) stopReplay();
+  }
+
+  function setReplaySpeed(ms) {
+    replaySpeedMs = ms;
+    if (replaySession && !replayPaused) {
+      if (replayTimer) clearTimeout(replayTimer);
+      _scheduleReplayStep();
+    }
+  }
+
   function stopReplay() {
-    if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
-    // Re-render so the .replay-banner disappears
+    if (replayTimer) { clearTimeout(replayTimer); replayTimer = null; }
+    replaySession = null;
+    replayPaused  = false;
     if (state) onNewState(state);
   }
+
+  // Restore an in-progress saved game. Called from the "Resume" button.
 
   function resumeFromSave() {
     const saved = loadSavedState();
@@ -652,7 +698,15 @@ export function mountControls(root, { onNewState }) {
     getRecord: loadRecord,
     startReplay: (snapshot) => startReplay(snapshot || state),
     stopReplay,
-    isReplaying: () => replayTimer != null,
+    pauseReplay,
+    resumeReplay,
+    stepForwardReplay,
+    setReplaySpeed,
+    isReplaying:  () => !!replaySession,
+    isReplayPaused: () => replayPaused,
+    replayProgress: () => replaySession
+      ? { idx: replaySession.idx, total: replaySession.history.length }
+      : null,
   };
 }
 

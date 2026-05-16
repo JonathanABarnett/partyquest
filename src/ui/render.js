@@ -50,15 +50,43 @@ export function renderAll(state, root, ctx = {}) {
   }
 }
 
+const REPLAY_SPEEDS = [
+  { label: '¼×', ms: 2000 },
+  { label: '½×', ms: 1000 },
+  { label: '1×', ms: 500 },
+  { label: '2×', ms: 250 },
+  { label: '4×', ms: 125 },
+];
+
 function renderReplayBanner(ctx) {
   const el = document.createElement('div');
   el.className = 'replay-banner';
+  const paused = ctx.isReplayPaused?.() ?? false;
+  const progress = ctx.replayProgress?.();
+  const pct = progress ? Math.round((progress.idx / progress.total) * 100) : 0;
   el.innerHTML = `
-    <span class="replay-icon">▶</span>
-    <span><b>Replaying</b> — watching the recorded action history at 0.5s per step.</span>
-    <button class="link-btn" data-action="stop-replay">■ Stop</button>
+    <span class="replay-icon">${paused ? '⏸' : '▶'}</span>
+    <div class="replay-controls">
+      <button class="replay-btn" data-replay="pause-resume">${paused ? '▶ Resume' : '⏸ Pause'}</button>
+      <button class="replay-btn" data-replay="step" ${!paused ? 'disabled' : ''} title="Step one action forward">⏭ Step</button>
+      <div class="replay-speed-group">
+        ${REPLAY_SPEEDS.map((s) => `<button class="replay-speed-btn" data-speed="${s.ms}">${s.label}</button>`).join('')}
+      </div>
+      <button class="replay-btn stop" data-replay="stop">■ Stop</button>
+    </div>
+    <div class="replay-progress">
+      <div class="replay-progress-bar" style="width:${pct}%"></div>
+      <span class="muted small">${progress ? `${progress.idx} / ${progress.total}` : ''}</span>
+    </div>
   `;
-  el.querySelector('[data-action="stop-replay"]').addEventListener('click', () => ctx.onStopReplay?.());
+  el.querySelector('[data-replay="pause-resume"]').addEventListener('click', () => {
+    if (paused) ctx.onResumeReplay?.(); else ctx.onPauseReplay?.();
+  });
+  el.querySelector('[data-replay="step"]')?.addEventListener('click', () => ctx.onStepForward?.());
+  el.querySelector('[data-replay="stop"]').addEventListener('click', () => ctx.onStopReplay?.());
+  el.querySelectorAll('[data-speed]').forEach((btn) => {
+    btn.addEventListener('click', () => ctx.onSetSpeed?.(parseInt(btn.dataset.speed, 10)));
+  });
   return el;
 }
 

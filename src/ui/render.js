@@ -5,6 +5,7 @@
 import { activePlayer, locationOf } from '../engine/state.js';
 import { legalActions } from '../engine/actions.js';
 import { EVENTS } from '../engine/data.js';
+import { loadRecord } from '../engine/persistence.js';
 
 // Terrain visual catalog — gradient + icon + flavor text. Used by tile render.
 const TERRAIN = {
@@ -158,6 +159,10 @@ function renderHeader(state) {
   const el = document.createElement('div');
   el.className = 'panel header-panel';
   const fa = state.finalAct ? ` — FINAL ACT` : '';
+  const r = loadRecord();
+  const wl = (r.wins + r.losses) > 0
+    ? `<span class="record-badge" title="Across all your saved games on this device. Resets via the Reset record button below.">★ ${r.wins}W · ☠ ${r.losses}L</span>`
+    : '';
   el.innerHTML = `
     <div class="header-row">
       <div>
@@ -168,7 +173,10 @@ function renderHeader(state) {
           <span>${state.doomClock} / ${state.config.doomMax}</span>
         </div>
       </div>
-      <div class="muted small">Seed: <code>${state.seed}</code> · <button class="link-btn" id="help-toggle">How to play</button></div>
+      <div class="muted small header-right">
+        ${wl}
+        Seed: <code>${state.seed}</code> · <button class="link-btn" id="help-toggle">How to play</button>
+      </div>
     </div>
     <div class="help-content" hidden>
       <h4>Quick rules</h4>
@@ -244,6 +252,15 @@ function renderMap(state, onAction) {
   const legal = (active && !state.outcome && (state.phase === 'player' || state.phase === 'final')) ? legalActions(state) : [];
   const moveOptions = new Set(legal.filter((a) => a.type === 'move').map((a) => a.to));
 
+  // Final Act path hint: during FA, compute the shortest path from active
+  // player's current tile to the FA tile and mark every tile on it. Helps
+  // human players see "two moves through the Capital" at a glance.
+  let pathHint = new Set();
+  if (state.finalAct && active && active.location !== state.finalAct.location) {
+    const path = shortestPath(active.location, state.finalAct.location, state.map);
+    if (path) path.forEach((id) => pathHint.add(id));
+  }
+
   const cells = [state.map.capital, ...state.map.regions];
   const regionCount = state.map.regions.length;
   cells.forEach((loc, idx) => {
@@ -253,6 +270,7 @@ function renderMap(state, onAction) {
     tile.style.background = t.bg;
     tile.dataset.locId = loc.id;
     if (state.finalAct?.location === loc.id) tile.classList.add('final-act');
+    if (pathHint.has(loc.id) && loc.id !== active?.location) tile.classList.add('path-hint');
     if (loc.id === 'capital') {
       tile.classList.add('capital');
     } else {
@@ -301,6 +319,27 @@ function renderMap(state, onAction) {
   });
   el.appendChild(ring);
   return el;
+}
+
+// BFS for shortest path between two locations on the map graph.
+function shortestPath(fromId, toId, map) {
+  if (fromId === toId) return [fromId];
+  const adj = {};
+  map.allLocations.forEach((l) => { adj[l.id] = l.adjacent; });
+  const queue = [[fromId]];
+  const visited = new Set([fromId]);
+  while (queue.length > 0) {
+    const path = queue.shift();
+    const last = path[path.length - 1];
+    for (const nbr of adj[last] || []) {
+      if (visited.has(nbr)) continue;
+      const newPath = [...path, nbr];
+      if (nbr === toId) return newPath;
+      visited.add(nbr);
+      queue.push(newPath);
+    }
+  }
+  return null;
 }
 
 // SVG layer drawn behind tiles. Coordinates are in 0–100 space and the SVG
@@ -508,14 +547,20 @@ function describeTech(tech) {
   }
 }
 
+// Track log length across renders so we can highlight only newly added lines.
+let _lastLogLen = 0;
 function renderLog(state) {
   const el = document.createElement('div');
   el.className = 'panel log-panel';
   el.innerHTML = `<h3>Adventure Log</h3>`;
   const list = document.createElement('div');
   list.className = 'log-list';
+  const totalLen = state.log.length;
+  const newCount = Math.max(0, totalLen - _lastLogLen);
+  _lastLogLen = totalLen;
   const recent = state.log.slice(-40);
-  recent.forEach((entry) => {
+  const firstNewIdx = recent.length - newCount;
+  recent.forEach((entry, i) => {
     const line = document.createElement('div');
     line.className = 'log-line';
     line.innerHTML = `<span class="muted small">r${entry.round}</span> ${enrichLog(entry.msg)}`;
@@ -524,6 +569,7 @@ function renderLog(state) {
     else if (/success/.test(entry.msg)) line.classList.add('log-success');
     else if (/failure/.test(entry.msg)) line.classList.add('log-failure');
     if (/Final Act|resolution complete|Game over|FINAL ACT/i.test(entry.msg)) line.classList.add('log-major');
+    if (i >= firstNewIdx && newCount > 0) line.classList.add('log-new');
     list.appendChild(line);
   });
   el.appendChild(list);

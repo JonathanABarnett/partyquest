@@ -7,10 +7,28 @@ import { runBatch, runVarianceCheck, runSweep } from '../sim/batch.js';
 import { legalActions } from '../engine/actions.js';
 import { activePlayer } from '../engine/state.js';
 import { createTutorial } from './tutorial.js';
+import { saveState, loadSavedState, clearSavedState, recordOutcome, loadRecord } from '../engine/persistence.js';
 
 export function mountControls(root, { onNewState }) {
   let state = null;
   let configOverride = {}; // user-tweakable dials from settings panel
+  let lastOutcomeRecorded = null; // dedupe outcome recording across renders
+
+  // Wrap onNewState so persistence and outcome recording fire on every
+  // render. Tutorial and dispatch all go through this single path.
+  const userOnNewState = onNewState;
+  // Wrapped to record outcomes and clear save on game-over. The actual save
+  // happens inside dispatch() — saving on every render would overwrite any
+  // prior in-progress save before the player has a chance to click Resume.
+  onNewState = (s) => {
+    if (s && s.outcome && lastOutcomeRecorded !== s) {
+      recordOutcome(s.outcome);
+      lastOutcomeRecorded = s;
+      clearSavedState();
+    }
+    userOnNewState(s);
+  };
+
   const tutorial = createTutorial();
   tutorial.setRenderHook(() => onNewState(state));
 
@@ -19,7 +37,10 @@ export function mountControls(root, { onNewState }) {
   ctrl.innerHTML = `
     <div class="control-head">
       <h3>Controls</h3>
-      <button id="startTutorial" class="link-btn" title="Walk through how to play with an interactive 10-step coach.">▶ Tutorial</button>
+      <div class="control-head-actions">
+        <button id="resumeGame" class="link-btn" title="Continue your last in-progress game." hidden>↺ Resume</button>
+        <button id="startTutorial" class="link-btn" title="Walk through how to play with an interactive 10-step coach.">▶ Tutorial</button>
+      </div>
     </div>
     <div class="control-row">
       <label>Players
@@ -123,6 +144,28 @@ export function mountControls(root, { onNewState }) {
     onNewState(state);
   }
 
+  // Restore an in-progress saved game. Called from the "Resume" button.
+  function resumeFromSave() {
+    const saved = loadSavedState();
+    if (!saved || saved.outcome) return false;
+    state = saved;
+    // Mirror the saved player count and human count to the controls so the
+    // sidebar reflects the actual game.
+    $('playerCount').value = String(state.players.length);
+    const humans = state.players.filter((p) => p.policy === 'manual').length;
+    $('humanCount').value = humans === state.players.length ? 'all'
+      : humans >= 2 ? '2' : humans >= 1 ? '1' : '0';
+    $('seed').value = String(state.seed);
+    refreshActionList();
+    onNewState(state);
+    return true;
+  }
+
+  function hasResumableSave() {
+    const saved = loadSavedState();
+    return !!(saved && !saved.outcome);
+  }
+
   // Auto-step through any non-manual (AI) players. Stops at the next manual
   // player, end of round, or game over. Called after every manual dispatch
   // and after newGame so the human only sees their own turns.
@@ -150,6 +193,8 @@ export function mountControls(root, { onNewState }) {
     // After a manual action, run any AI players whose turn comes up next.
     autoAdvanceAI();
     refreshActionList();
+    // Save progress so the Resume button works after a tab close.
+    if (state && !state.outcome) saveState(state);
     onNewState(state);
   }
 
@@ -345,17 +390,35 @@ export function mountControls(root, { onNewState }) {
     newGame({ seed: 7 });
     tutorial.start();
   });
+  $('resumeGame').addEventListener('click', () => {
+    if (!resumeFromSave()) {
+      $('resumeGame').hidden = true;
+    }
+  });
+
+  // Show the Resume button only when a saved in-progress game exists.
+  function refreshResumeButton() {
+    const btn = $('resumeGame');
+    if (btn) btn.hidden = !hasResumableSave();
+  }
+  refreshResumeButton();
+  // Also refresh on every render, since saves update with play.
+  const _prevOnNewState = onNewState;
+  onNewState = (s) => { _prevOnNewState(s); refreshResumeButton(); };
+  // Re-thread the new wrapper into the tutorial renderHook so it picks up the latest one.
+  tutorial.setRenderHook(() => onNewState(state));
 
   // Start with one game ready to go
   newGame();
 
-  // First-visit auto-launch: pop the tutorial after the initial newGame
-  // has finished rendering. localStorage flag keeps it a one-time thing.
+  // Start: always begin with a fresh game. If a save exists, the Resume
+  // button in the sidebar lets the player jump back into it explicitly.
+  // Persistence only fires from inside dispatch(), so this initial fresh
+  // game does NOT overwrite the existing save.
+  newGame();
   if (tutorial.isFirstVisit()) {
-    // Defer one tick so the first render lands before the tutorial overlay
     setTimeout(() => {
-      // Switch to a fixed friendly seed so first-time players see a
-      // predictable game state.
+      clearSavedState();
       newGame({ seed: 7 });
       tutorial.start();
     }, 50);
@@ -368,8 +431,9 @@ export function mountControls(root, { onNewState }) {
     setConfigOverride,
     getConfigOverride,
     newGame,
-    replaySeed: (seed) => newGame({ seed }),
+    replaySeed: (seed) => { clearSavedState(); newGame({ seed }); },
     tutorial,
+    getRecord: loadRecord,
   };
 }
 

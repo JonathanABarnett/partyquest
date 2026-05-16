@@ -94,6 +94,45 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .tutorial-list li { margin-bottom: 3px; color: var(--accent-2); }
 .tutorial-actions .muted.small { font-size: 13px; color: var(--gold); font-weight: 600; }
 
+/* Tutorial help-block DSL — labeled WHO/WHAT/WHERE/WHY rows */
+.tutorial-body .t-row {
+  margin: 4px 0;
+  padding-left: 56px;
+  position: relative;
+  line-height: 1.55;
+}
+.tutorial-body .t-tag {
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 48px;
+  background: var(--gold-dim);
+  color: var(--ink);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-align: center;
+  padding: 1px 0;
+  border-radius: 3px;
+}
+.tutorial-body .t-row b { color: var(--gold); }
+.tutorial-body .t-row em { color: var(--accent-2); font-style: italic; }
+.tutorial-body .t-after,
+.tutorial-body .t-narration,
+.tutorial-body .t-good,
+.tutorial-body .t-info,
+.tutorial-body .t-recent {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+.tutorial-body .t-narration { background: rgba(152, 168, 122, 0.12); border-left: 3px solid var(--accent-2); }
+.tutorial-body .t-good { background: rgba(152, 168, 122, 0.16); border-left: 3px solid var(--accent-2); color: var(--accent-2); font-weight: 600; }
+.tutorial-body .t-info { background: rgba(210, 139, 95, 0.12); border-left: 3px solid var(--accent); }
+.tutorial-body .t-recent { background: rgba(224, 188, 115, 0.1); border-left: 3px solid var(--gold-dim); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.tutorial-body .t-narration .muted.small { font-style: italic; }
+
 /* Pulse highlight on tutorial target */
 .tutorial-target {
   position: relative;

@@ -1,15 +1,15 @@
-// Interactive in-game tutorial. A state machine + a banner renderer.
-// The user plays a real (fixed-seed) game while a contextual coach in a
-// sticky banner explains every step. Action-gated steps advance when the
-// player takes a matching action. Same fixed seed + player config every
-// time so the walkthrough is identical for every new player.
+// Interactive in-game tutorial. State machine + banner renderer. The user
+// plays a real (fixed-seed) game while a sticky contextual coach explains
+// each step. Action-gated steps advance when the player takes a matching
+// action. Same locked setup every run so the walkthrough is identical.
+//
+// v2 of the walkthrough covers 3 full rounds end-to-end with who/what/
+// where/why help blocks on every step.
 
 const FIRST_VISIT_KEY = 'partyquest:tutorial-seen';
 
-// Locked tutorial config — every tutorial run produces the same game state.
-// Seed 7 + 3 players (1 human, 2 opportunist AI partners) was chosen because
-// it produces a Cleric for P1 (a good teaching class — heal makes sense to
-// new players), and quick first-round events that can succeed.
+// Locked tutorial config. Seed 7 produces an Elf Ranger for P1, with quick
+// first-round events that succeed and let stage 1 of the quest clear early.
 export const TUTORIAL_CONFIG = {
   seed: 7,
   playerCount: 3,
@@ -17,15 +17,45 @@ export const TUTORIAL_CONFIG = {
   aiPolicy: 'opportunist',
 };
 
-// `body` is static text or a function (state, log) => html string. `target`
-// is a CSS selector that gets a gold pulse highlight. `advanceOn` is either
-// the string 'next' (Next button) or a predicate (action, state) => bool.
-// `description` is shown to the player as the action prompt.
+// Small DSL: a "help block" tagged by who/what/where/why for consistency.
+function help({ who, what, where, why, after }) {
+  const rows = [];
+  if (after) rows.push(`<div class="t-after">${after}</div>`);
+  if (who) rows.push(`<div class="t-row"><span class="t-tag">WHO</span> ${who}</div>`);
+  if (what) rows.push(`<div class="t-row"><span class="t-tag">WHAT</span> ${what}</div>`);
+  if (where) rows.push(`<div class="t-row"><span class="t-tag">WHERE</span> ${where}</div>`);
+  if (why) rows.push(`<div class="t-row"><span class="t-tag">WHY</span> ${why}</div>`);
+  return rows.join('');
+}
+
+function escapeHtmlLite(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Pull the most recent AI lines from the log (everything since the last
+// `End of round X` marker or end of log, whichever was earlier).
+function recentAIBullets(state) {
+  const log = state.log || [];
+  // Walk backward until we cross an "End of round" entry or hit 12 lines.
+  const lines = [];
+  for (let i = log.length - 1; i >= 0 && lines.length < 12; i--) {
+    if (/^End of round/.test(log[i].msg)) break;
+    if (/^Round \d+ — Threat/.test(log[i].msg)) break;
+    if (/^P[1-9]/.test(log[i].msg)) lines.unshift(log[i].msg);
+  }
+  return lines.map((m) => `<li>${escapeHtmlLite(m)}</li>`).join('');
+}
+
 const STEPS = [
+  // ---------- INTRO ----------
   {
     id: 'welcome',
     title: 'Welcome to Partyquest',
-    body: `You're about to play a co-op fantasy adventure with hidden personal agendas. Your party works together to survive the world's doom — but each of you also has a secret quest. <b>This tutorial walks you through one complete game.</b> The setup is the same every time so you can replay it as many times as you need. Press <b>Next</b> to begin.`,
+    body: () => help({
+      what: `Partyquest is a co-op fantasy adventure where each hero has a <b>hidden personal agenda</b>. The party wins together — but you each also have a private quest. Sometimes the goals align. Sometimes they don't.`,
+      who: `You'll control one hero (P1). The other two heroes are <em>AI partners</em> who play automatically after your turn.`,
+      why: `<b>Tutorial scope:</b> we'll play through <b>3 full rounds</b> so you see every phase (World → Players → End) at least three times. Click <b>Next</b> to begin.`,
+    }),
     target: null,
     advanceOn: 'next',
   },
@@ -33,112 +63,249 @@ const STEPS = [
     id: 'your-character',
     title: (state) => {
       const me = state.players?.find((p) => p.policy === 'manual');
-      return me ? `Meet your hero — P1 the ${me.race.name} ${me.class.name}` : 'Meet your hero';
+      return me ? `Meet P1 — your ${me.race.name} ${me.class.name}` : 'Meet your hero';
     },
     body: (state) => {
       const me = state.players?.find((p) => p.policy === 'manual');
       const cls = me?.class?.name || 'hero';
       const align = me?.alignment || '';
-      return `You're playing <b>P1</b>, a <b>${cls}</b> (alignment <b>${align}</b>). The other two characters (P2 and P3) are <em>AI partners</em> — they'll take their turns automatically after you. Hover the class name on your card to see your stats, max HP, and signature ability. Your <b>quest headline</b> and <b>alignment</b> are visible to everyone, but the quest's hidden twist (what you actually do at stage 3) is yours alone.`;
+      const ability = me?.class?.ability || '';
+      return help({
+        who: `You're P1, a <b>${me?.race?.name || ''} ${cls}</b> aligned <b>${align}</b>. Hover the class name on your card for a stat/ability popover.`,
+        what: `Each class has a +2 primary stat, +1 secondary, +0 elsewhere, plus a once-per-round signature ability (<code>${ability}</code>).`,
+        where: `Look at the highlighted player card — that's you. P2 and P3 use the <em>opportunist</em> AI policy (cooperative early, ambitious late).`,
+        why: `Your class shapes which events you're good at. Your alignment shapes how you score in the Final Act (Lawful = STR/DEX, Neutral = INT/STR, Chaotic = CHA/INT).`,
+      });
     },
     target: '.player-card.active',
     advanceOn: 'next',
   },
   {
     id: 'the-realm',
-    title: 'The Realm',
-    body: `The map is a Capital surrounded by random regions. You start at the Capital — see the gold border around your tile? Tiles glowing with a dashed sage outline are <b>adjacent</b> and clickable to move. The Doom Clock at the top ticks up each round; when it hits max, the <b>Final Act</b> begins.`,
+    title: 'The Realm & the Doom Clock',
+    body: () => help({
+      where: `The map is the Capital (centered, gold) plus 4 regions arranged in a ring around it. Adjacent tiles to your character glow with a sage dashed outline — those are your move options.`,
+      what: `The <b>Doom Clock</b> at the top fills one red pip each round when the World plays a Threat card. The threat causes damage or alerts, then joins the Techniques Row.`,
+      why: `When Doom hits max (10), the <b>Final Act</b> triggers: one region lights up red and your party has 3 rounds to converge there and win. Plan your moves with that timer in mind.`,
+    }),
     target: '.map-panel',
     advanceOn: 'next',
   },
   {
     id: 'your-quest',
     title: 'Your hidden quest',
-    body: `Your quest has <b>three stages</b>: <b>1)</b> succeed any event check, <b>2)</b> travel to a specific terrain, <b>3)</b> commit (Lawful helps the party, Chaotic hurts them). The numbered pips on your quest line show your progress. Right now stage 1 is glowing — let's clear it.`,
+    body: (state) => {
+      const me = state.players?.find((p) => p.policy === 'manual');
+      const terrain = me?.quest?.stages?.[1]?.terrain || 'a specific terrain';
+      const align = me?.alignment || 'your alignment';
+      const impact = align === 'Lawful' ? 'helps the party' : align === 'Chaotic' ? 'costs the party HP and advances doom' : 'is neutral to the party';
+      return help({
+        what: `<b>3 stages:</b> <b>1)</b> succeed any event check, <b>2)</b> travel to a <b>${terrain}</b> region, <b>3)</b> commit (your alignment determines what happens to the party — yours ${impact}).`,
+        where: `Your quest line is on your card, just below stats. The numbered pips track progress; pip 1 is glowing now.`,
+        why: `Completing your quest scores major personal points at game-end, separate from any party-win bonus.`,
+      });
+    },
     target: '.player-card.active .player-quest',
     advanceOn: 'next',
   },
+
+  // ---------- ROUND 1 ----------
   {
-    id: 'first-event',
-    title: 'Roll your first event',
-    body: `Click the <b>⚔ Attempt event</b> button on your character card. The engine will draw an event card matching your tile's terrain and roll <b>2d6 + stat bonus</b> against the event's difficulty. Win it and your stage 1 quest pip turns sage green.`,
+    id: 'r1-event',
+    title: 'Round 1 — attempt an event',
+    body: () => help({
+      what: `Click the <b>⚔ Attempt event</b> button. The engine draws an event matching your tile's terrain and rolls <b>2d6 + stat bonus</b> against the event's DC.`,
+      where: `On your character card — first gold button.`,
+      why: `Any successful event clears your stage-1 quest pip. Even failures matter — they cost HP or raise tile alert.`,
+    }),
     target: '.player-card.active .player-actions button',
     advanceOn: (action) => action.type === 'event',
     description: 'Click ⚔ Attempt event',
   },
   {
-    id: 'after-event',
+    id: 'r1-rolls',
     title: 'How rolls work',
-    body: (_state, logTail) => `Look at the log below — the most recent line shows your roll. The two dice icons are your <b>2d6</b>, followed by the <b>+ stat bonus</b>, then the total compared to the DC. Sage-green lines = success, rose-pink lines = failure. Double-6 is a crit (success + extra reward). Snake-eyes (double 1) is a fumble (failure + extra consequence). Latest: <em>${logTail || '(see log)'}</em>`,
+    body: (state) => {
+      const lastLog = state?.log?.slice(-1)[0]?.msg || '';
+      return help({
+        after: `<div class="t-recent">Latest: <em>${escapeHtmlLite(lastLog)}</em></div>`,
+        what: `Every check is <b>2d6 + stat bonus</b> vs the event's DC. The dice icons in the log show what you rolled. Double-6 is a crit (success + extra reward). Snake-eyes (double 1) is a fumble.`,
+        where: `Look at the latest log line below — it's color-coded: sage = success, rose = failure, gold-bordered = crit, red-bordered = fumble.`,
+        why: `Your stat bonus is the only consistent edge you have. Picking events that hit your strong stats matters.`,
+      });
+    },
     target: '.log-panel',
     advanceOn: 'next',
   },
   {
-    id: 'end-turn',
+    id: 'r1-end-turn',
     title: 'End your turn',
-    body: `You get <b>one move and one act per turn</b>. You already used your act (the event). To pass to your AI partners, click <b>➜ End turn</b>. After you end, the AI partners will play their turns automatically.`,
+    body: () => help({
+      what: `Each turn = 1 move + 1 act. You spent your act on the event. Click <b>➜ End turn</b> to pass to P2 and P3.`,
+      where: `Subtle button at the right end of your action row.`,
+      why: `AI partners will play their turns automatically. After all three players finish, a new round starts with another Threat card.`,
+    }),
     target: '.player-card.active .player-actions button:last-of-type',
     advanceOn: (action) => action.type === 'end_turn',
     description: 'Click ➜ End turn',
   },
   {
-    id: 'ai-narration',
-    title: 'Your AI partners just played',
-    body: (state, _logTail) => {
-      // Pull the most recent ~6 log entries to summarize the AI turn.
-      const recent = (state.log || []).slice(-8).filter((e) => /^P[2-9]|^P[1-9][0-9]/.test(e.msg));
-      if (recent.length === 0) return 'Your AI partners took their turns silently — check the log below for the full play-by-play.';
-      const lines = recent.map((e) => `<li>${escapeHtmlLite(e.msg)}</li>`).join('');
-      return `Here's what P2 and P3 (your AI partners) just did:<ul class="tutorial-list">${lines}</ul>Now it's your turn again. Notice the round and doom clock advanced — the world fights back at the start of every round.`;
+    id: 'r1-ai',
+    title: 'Your AI partners played (round 1)',
+    body: (state) => {
+      const bullets = recentAIBullets(state);
+      const ul = bullets ? `<ul class="tutorial-list">${bullets}</ul>` : `<div class="muted">(see the log below for full play-by-play)</div>`;
+      return help({
+        after: `<div class="t-narration">${ul}</div>`,
+        who: `P2 and P3 just took their turns automatically.`,
+        what: `Opportunist AI helps the party early (cooperative play) and pivots to greedy later (chases its own quest). You can see the policy on each AI card (under "policy").`,
+        why: `Watching AI partners helps you read your own options — if an AI heals or rests, that's a signal they're hurt. If they bee-line to a terrain, they're chasing a quest stage.`,
+      });
     },
     target: '.log-panel',
     advanceOn: 'next',
   },
+
+  // ---------- ROUND 2 ----------
   {
-    id: 'plan-travel',
-    title: 'Stage 2 — travel to your terrain',
+    id: 'r2-intro',
+    title: 'Round 2 begins — time to travel',
     body: (state) => {
       const me = state.players?.find((p) => p.policy === 'manual');
-      const target = me?.quest?.stages?.[1]?.terrain || '?';
-      return `Your quest stage 2 needs you on a <b>${target}</b> region. Look at the map — does a ${target} tile exist? If so, click it to move there. (Tiles you can move to right now have the sage dashed outline.)`;
+      const target = me?.quest?.stages?.[1]?.terrain || 'a specific terrain';
+      return help({
+        what: `A new round started. The World played another Threat (you saw the log) and doom advanced. You're up again.`,
+        where: `Your quest stage 2 wants you on a <b>${target}</b> region. Check the map — is there one nearby? Adjacent tiles (sage outline) are your move options.`,
+        why: `The Capital connects to every region, so worst case you can always get anywhere in 2 hops (region → Capital → other region). Plan whether to push for stage 2 or stay safe for now.`,
+      });
     },
+    target: '.map-panel',
+    advanceOn: 'next',
+  },
+  {
+    id: 'r2-move',
+    title: 'Click an adjacent tile to move',
+    body: () => help({
+      what: `Click <b>any</b> tile that glows with the sage dashed outline. Movement uses your <em>move</em> action (you still have your <em>act</em> action this turn).`,
+      where: `On the map. Hover any tile first to see its terrain icon, sample events, and adjacency highlights.`,
+      why: `Movement isn't free — each round on the road is a round closer to Final Act. If your quest terrain isn't adjacent yet, consider doing an event here for stage 1 first.`,
+    }),
     target: '.map-panel',
     advanceOn: (action) => action.type === 'move',
     description: 'Click any adjacent tile to move',
   },
   {
-    id: 'techniques',
-    title: 'Steal the world\'s moves',
-    body: `Each round, the world plays a Threat card — it damages you and joins the <b>Techniques Row</b>. You can <b>claim</b> a card on your turn (click it) to keep that power for yourself: stat bonuses, heals, doom rollbacks. Try clicking one. (Claiming uses your action this turn.)`,
-    target: '.tech-panel',
-    advanceOn: (action) => action.type === 'claim_technique',
-    description: 'Click a card in the Techniques Row',
+    id: 'r2-end-turn',
+    title: 'End your turn (round 2)',
+    body: (state) => {
+      const me = state.players?.find((p) => p.policy === 'manual');
+      const loc = state.map?.allLocations.find((l) => l.id === me?.location);
+      const targetTerrain = me?.quest?.stages?.[1]?.terrain;
+      const arrived = loc?.terrain === targetTerrain;
+      return help({
+        after: arrived ? `<div class="t-good">✓ You're on a <b>${targetTerrain}</b> tile. Your quest will advance to stage 3 next time you end the turn here.</div>` : `<div class="t-info">You're on <b>${loc?.terrain || '?'}</b>. Quest stage 2 needs <b>${targetTerrain}</b> — keep traveling next round.</div>`,
+        what: `Click <b>➜ End turn</b>. If you can spare the action you could try an event here first, but for the tutorial let's just end and watch AI play.`,
+        why: `Ending early in the tutorial keeps the pace tight. In real play, squeeze every action you can.`,
+      });
+    },
+    target: '.player-card.active .player-actions button:last-of-type',
+    advanceOn: (action) => action.type === 'end_turn',
+    description: 'Click ➜ End turn',
   },
   {
-    id: 'doom-clock',
-    title: 'The Doom Clock',
-    body: `Look at the doom row in the header — each red pip is one tick of doom. When it fills up, the <b>Final Act</b> triggers: one region lights up red, and your party has 3 rounds to converge there and win. Until then, your job is to advance your quest and stay alive.`,
+    id: 'r2-ai',
+    title: 'AI partners played (round 2)',
+    body: (state) => {
+      const bullets = recentAIBullets(state);
+      const ul = bullets ? `<ul class="tutorial-list">${bullets}</ul>` : `<div class="muted">(see the log)</div>`;
+      return help({
+        after: `<div class="t-narration">${ul}</div>`,
+        what: `Another World phase fired (doom +1 or more) and your partners took their second turns. Notice the Techniques Row at the bottom — each threat the world plays gets added there for you to claim.`,
+        why: `The doom clock is creeping toward Final Act. By round 5-7 you'll start seeing the red glow on a region. Plan a path there now.`,
+      });
+    },
+    target: '.tech-panel',
+    advanceOn: 'next',
+  },
+
+  // ---------- ROUND 3 ----------
+  {
+    id: 'r3-techniques',
+    title: 'Round 3 — meet the Techniques Row',
+    body: (state) => {
+      const techs = state.techniquesRow || [];
+      const summary = techs.length
+        ? techs.map((t) => `<li><b>${escapeHtmlLite(t.name)}</b> — ${techDescr(t.tech)}</li>`).join('')
+        : '<li class="muted">(empty for now — wait for a threat)</li>';
+      return help({
+        after: `<div class="t-narration"><div class="muted small">Available now:</div><ul class="tutorial-list">${summary}</ul></div>`,
+        what: `The Techniques Row is the threats the World has played, kept for you to <em>steal</em>. Click any card to claim it — claim uses your <em>act</em> action this turn.`,
+        where: `Below the player cards. Hover any card for details.`,
+        why: `Threats damage you, but you can turn them into your own one-shot powers: stat bonuses to use later, heal, or doom rollback. They're crucial for Final Act prep.`,
+      });
+    },
+    target: '.tech-panel',
+    advanceOn: 'next',
+  },
+  {
+    id: 'r3-claim',
+    title: 'Claim a technique',
+    body: () => help({
+      what: `Click <b>any</b> technique card to claim it. It joins your inventory (you'll see "Techs held: ..." on your card) until you spend it.`,
+      where: `In the Techniques Row below. Claimable cards have a gold border.`,
+      why: `<b>Stockpile bonuses now</b> so the Final Act resolution rolls go your way. A held +3 STR bonus from a claimed Pyre Strike can be the difference between a fumble and a crit.`,
+    }),
+    target: '.tech-panel',
+    advanceOn: (action) => action.type === 'claim_technique',
+    description: 'Click any technique card to claim it',
+  },
+  {
+    id: 'r3-end-turn',
+    title: 'End round 3',
+    body: (state) => help({
+      after: `<div class="t-info">Doom clock is at <b>${state.doomClock} / ${state.config.doomMax}</b> — ${state.config.doomMax - state.doomClock} ticks until Final Act.</div>`,
+      what: `End your turn one more time. You've now seen every phase of a round: World → Players (you + AI) → End.`,
+      why: `Each remaining round you'll need to balance: advance your quest (events, moves), prep for FA (claim techniques), and survive (rest, heal).`,
+    }),
+    target: '.player-card.active .player-actions button:last-of-type',
+    advanceOn: (action) => action.type === 'end_turn',
+    description: 'Click ➜ End turn',
+  },
+
+  // ---------- WRAP-UP ----------
+  {
+    id: 'final-act-preview',
+    title: 'What\'s coming: the Final Act',
+    body: () => help({
+      what: `When Doom hits max, one region lights up red — that's the <b>Final Act tile</b>. A banner appears at the top showing 3 colored progress bars (Lawful blue, Neutral green, Chaotic rose).`,
+      where: `Move to the red tile, then click <b>★ Try [Alignment] resolution</b> on your card. Each attempt rolls 2d6 + best of two stats per alignment vs DC 9.`,
+      why: `<b>3 successful checks of one alignment = party wins.</b> If you win on <em>YOUR</em> alignment AND completed your quest, you score big personally. If the party wins on someone else's alignment, you might lose individually even though the party won.`,
+    }),
     target: '.doom-row',
     advanceOn: 'next',
   },
   {
-    id: 'final-act-preview',
-    title: 'About the Final Act',
-    body: `When doom hits max, one region lights red and a banner appears with 3 progress bars (Lawful, Neutral, Chaotic). Move to the red tile and click <b>★ Try [Alignment] resolution</b>. <b>Land 3 successful checks of one alignment</b> to win. If you win on <em>your</em> alignment AND complete your quest, you score big personally.`,
-    target: null,
-    advanceOn: 'next',
-  },
-  {
     id: 'ready',
-    title: 'You\'re ready — finish the game!',
-    body: `That's everything you need. From here, play the rest however you like. Watch your HP, claim techniques aggressively, and try to reach the Final Act tile when it appears. <b>Good luck!</b> (You can restart this tutorial any time from the sidebar.)`,
+    title: 'You\'re ready — finish your way',
+    body: () => help({
+      what: `You've played 3 full rounds and learned every system: events, movement, end-turn, AI partners, techniques, quest stages, and the Final Act.`,
+      who: `The rest of the game is yours alone. Watch HP, claim techniques aggressively, and try to reach the Final Act tile when it appears.`,
+      why: `<b>Pro tip:</b> the Save slots in the sidebar let you snapshot a tense moment before risky choices, so you can try multiple strategies on the same map.`,
+    }),
     target: null,
     advanceOn: 'next',
   },
 ];
 
-function escapeHtmlLite(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function techDescr(tech) {
+  if (!tech) return '';
+  switch (tech.type) {
+    case 'bonus': return `+${tech.value} to ${tech.stat} checks`;
+    case 'heal': return `heal ${tech.value} HP`;
+    case 'doomBack': return `doom -${tech.value}`;
+    case 'reroll': return `reroll one check`;
+    default: return tech.type;
+  }
 }
 
 export function createTutorial() {
@@ -159,7 +326,6 @@ export function createTutorial() {
     renderFn?.();
   }
   function exitAndReset() {
-    // Stop the tutorial AND ask the host to start a fresh game.
     stop();
     onExitFn?.();
   }
@@ -171,10 +337,7 @@ export function createTutorial() {
   }
   function current() { return active ? STEPS[stepIdx] : null; }
   function resolveBody(step, state) {
-    if (typeof step.body === 'function') {
-      const lastLog = state?.log?.slice(-1)[0]?.msg || '';
-      return step.body(state, lastLog);
-    }
+    if (typeof step.body === 'function') return step.body(state);
     return step.body;
   }
   function isFirstVisit() {

@@ -9,6 +9,7 @@ import { makeRng } from './rng.js';
 const SAVE_KEY = 'partyquest:save-v1';
 const RECORD_KEY = 'partyquest:record';
 const SLOT_KEY = (n) => `partyquest:slot-${n}`;
+const AUTO_FA_KEY = 'partyquest:autosnap-finalact';
 export const SLOT_COUNT = 3;
 
 export function saveState(state) {
@@ -60,9 +61,10 @@ export function resetRecord() {
 // Each slot is a manually-named snapshot the player can save into and load
 // back from. Same serialize format; just a different storage key.
 
-export function saveSlot(n, state) {
+export function saveSlot(n, state, name) {
   if (!state || n < 1 || n > SLOT_COUNT) return;
   try {
+    const existing = (() => { try { return JSON.parse(localStorage.getItem(SLOT_KEY(n))).meta; } catch { return {}; } })();
     const meta = {
       ts: Date.now(),
       round: state.round,
@@ -71,11 +73,22 @@ export function saveSlot(n, state) {
       playerCount: state.players.length,
       humanCount: state.players.filter((p) => p.policy === 'manual').length,
       seed: state.seed,
+      name: name != null ? name : (existing?.name || ''),
     };
     const blob = { meta, state: serialize(state) };
     localStorage.setItem(SLOT_KEY(n), JSON.stringify(blob));
     return meta;
   } catch { return null; }
+}
+
+export function renameSlot(n, name) {
+  try {
+    const raw = localStorage.getItem(SLOT_KEY(n));
+    if (!raw) return;
+    const blob = JSON.parse(raw);
+    blob.meta = { ...(blob.meta || {}), name };
+    localStorage.setItem(SLOT_KEY(n), JSON.stringify(blob));
+  } catch {}
 }
 
 export function loadSlot(n) {
@@ -100,6 +113,47 @@ export function listSlots() {
 
 export function clearSlot(n) {
   try { localStorage.removeItem(SLOT_KEY(n)); } catch {}
+}
+
+// Auto-snapshot taken when the Final Act first triggers. A single dedicated
+// slot, separate from the manual ones, so the player can always retry the
+// climax without overwriting their own snapshots.
+export function saveAutoFinalActSnapshot(state) {
+  if (!state) return;
+  try {
+    const meta = {
+      ts: Date.now(),
+      round: state.round,
+      doom: state.doomClock,
+      finalAct: true,
+      playerCount: state.players.length,
+      humanCount: state.players.filter((p) => p.policy === 'manual').length,
+      seed: state.seed,
+      auto: true,
+    };
+    localStorage.setItem(AUTO_FA_KEY, JSON.stringify({ meta, state: serialize(state) }));
+  } catch {}
+}
+
+export function loadAutoFinalActSnapshot() {
+  try {
+    const raw = localStorage.getItem(AUTO_FA_KEY);
+    if (!raw) return null;
+    const blob = JSON.parse(raw);
+    return { meta: blob.meta, state: deserialize(blob.state) };
+  } catch { return null; }
+}
+
+export function getAutoFinalActMeta() {
+  try {
+    const raw = localStorage.getItem(AUTO_FA_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw).meta;
+  } catch { return null; }
+}
+
+export function clearAutoFinalActSnapshot() {
+  try { localStorage.removeItem(AUTO_FA_KEY); } catch {}
 }
 
 function byId(list, id) { return list.find((x) => x.id === id); }

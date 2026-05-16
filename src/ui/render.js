@@ -34,7 +34,7 @@ export function renderAll(state, root, ctx = {}) {
   const onAction = ctx.onAction || (() => {});
   const tutorial = ctx.tutorial;
   root.innerHTML = '';
-  if (tutorial?.current()) root.appendChild(renderTutorialBanner(tutorial));
+  if (tutorial?.current()) root.appendChild(renderTutorialBanner(tutorial, state));
   if (ctx.isReplaying?.()) root.appendChild(renderReplayBanner(ctx));
   if (state.outcome) root.appendChild(renderGameOver(state, ctx));
   root.appendChild(renderHeader(state));
@@ -62,28 +62,34 @@ function renderReplayBanner(ctx) {
   return el;
 }
 
-function renderTutorialBanner(tutorial) {
+function renderTutorialBanner(tutorial, state) {
   const step = tutorial.current();
   const idx = tutorial.stepIndex();
   const total = tutorial.totalSteps;
   const el = document.createElement('div');
   el.className = 'tutorial-banner';
   const isAuto = typeof step.advanceOn === 'function';
+  const body = tutorial.resolveBody ? tutorial.resolveBody(step, state) : step.body;
+  const title = typeof step.title === 'function' ? step.title(state) : step.title;
   el.innerHTML = `
     <div class="tutorial-progress">
       <span class="tutorial-step-num">Tutorial · step ${idx + 1} of ${total}</span>
-      <button class="link-btn" data-tutorial="skip">Skip</button>
+      <div class="tutorial-progress-actions">
+        <button class="link-btn" data-tutorial="skip" title="Stop the tutorial; continue this game freely.">Skip tutorial</button>
+        <button class="link-btn" data-tutorial="exit" title="Stop the tutorial AND start a fresh new game.">✕ Exit &amp; new game</button>
+      </div>
     </div>
-    <div class="tutorial-title">${step.title}</div>
-    <div class="tutorial-body">${step.body}</div>
+    <div class="tutorial-title">${title}</div>
+    <div class="tutorial-body">${body}</div>
     <div class="tutorial-actions">
       ${isAuto
-        ? `<span class="muted small">(advances automatically when you act)</span>`
+        ? `<span class="muted small">${step.description ? '👉 ' + step.description : '(advances automatically when you act)'}</span>`
         : `<button class="primary" data-tutorial="next">Next →</button>`
       }
     </div>
   `;
   el.querySelector('[data-tutorial="skip"]').addEventListener('click', () => tutorial.stop());
+  el.querySelector('[data-tutorial="exit"]').addEventListener('click', () => tutorial.exitAndReset?.());
   el.querySelector('[data-tutorial="next"]')?.addEventListener('click', () => tutorial.next());
   return el;
 }

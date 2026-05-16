@@ -6,13 +6,14 @@ import { pickByPolicy } from '../ai/policies.js';
 import { runBatch, runVarianceCheck, runSweep } from '../sim/batch.js';
 import { legalActions } from '../engine/actions.js';
 import { activePlayer } from '../engine/state.js';
-import { createTutorial } from './tutorial.js';
-import { saveState, loadSavedState, clearSavedState, recordOutcome, loadRecord, resetRecord, saveSlot, loadSlot, listSlots, clearSlot } from '../engine/persistence.js';
+import { createTutorial, TUTORIAL_CONFIG } from './tutorial.js';
+import { saveState, loadSavedState, clearSavedState, recordOutcome, loadRecord, resetRecord, saveSlot, loadSlot, listSlots, clearSlot, renameSlot, saveAutoFinalActSnapshot, loadAutoFinalActSnapshot, getAutoFinalActMeta, clearAutoFinalActSnapshot } from '../engine/persistence.js';
 
 export function mountControls(root, { onNewState }) {
   let state = null;
   let configOverride = {}; // user-tweakable dials from settings panel
   let lastOutcomeRecorded = null; // dedupe outcome recording across renders
+  let lastFinalActFlag = false; // detect Final Act transition for auto-snap
 
   // Wrap onNewState so persistence and outcome recording fire on every
   // render. Tutorial and dispatch all go through this single path.
@@ -21,10 +22,22 @@ export function mountControls(root, { onNewState }) {
   // happens inside dispatch() — saving on every render would overwrite any
   // prior in-progress save before the player has a chance to click Resume.
   onNewState = (s) => {
-    if (s && s.outcome && lastOutcomeRecorded !== s) {
-      recordOutcome(s.outcome);
-      lastOutcomeRecorded = s;
-      clearSavedState();
+    if (s) {
+      // Auto-snapshot once, the moment Final Act first triggers (works for
+      // both dispatch-driven play and AI-driven play like playOut/step*).
+      // Don't overwrite an existing snapshot from the same seed — that
+      // preserves the original FA-start state across resumes.
+      const faNow = !!s.finalAct;
+      if (faNow && !lastFinalActFlag) {
+        const existing = getAutoFinalActMeta();
+        if (!existing || existing.seed !== s.seed) saveAutoFinalActSnapshot(s);
+      }
+      lastFinalActFlag = faNow;
+      if (s.outcome && lastOutcomeRecorded !== s) {
+        recordOutcome(s.outcome);
+        lastOutcomeRecorded = s;
+        clearSavedState();
+      }
     }
     userOnNewState(s);
   };
@@ -241,7 +254,8 @@ export function mountControls(root, { onNewState }) {
     // After a manual action, run any AI players whose turn comes up next.
     autoAdvanceAI();
     refreshActionList();
-    // Save progress so the Resume button works after a tab close.
+    // Save progress so the Resume button works after a tab close. The
+    // Final-Act auto-snapshot is handled by the onNewState wrapper.
     if (state && !state.outcome) saveState(state);
     onNewState(state);
   }
@@ -439,23 +453,53 @@ export function mountControls(root, { onNewState }) {
   });
 
   // ---- Save slots ----
+  function applyLoadedState(loadedState) {
+    if (!loadedState) return;
+    state = loadedState;
+    $('playerCount').value = String(state.players.length);
+    const humans = state.players.filter((p) => p.policy === 'manual').length;
+    $('humanCount').value = humans === state.players.length ? 'all' : humans >= 2 ? '2' : humans >= 1 ? '1' : '0';
+    $('seed').value = String(state.seed);
+    refreshActionList();
+    onNewState(state);
+  }
+
+  function fmtTime(ts) {
+    return new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
   function renderSlots() {
     const root = $('slotsRoot');
     if (!root) return;
     const slots = listSlots();
-    root.innerHTML = slots.map((s) => {
+    const autoMeta = getAutoFinalActMeta();
+
+    // Auto-snapshot row first (only shown when one exists)
+    const autoHtml = autoMeta
+      ? `<div class="slot-row auto-snapshot">
+          <div class="slot-label">
+            <b>⚡ Auto-saved: Final Act start</b>
+            <span class="muted small">round ${autoMeta.round} · seed ${autoMeta.seed} · ${fmtTime(autoMeta.ts)}</span>
+          </div>
+          <div class="slot-actions">
+            <button data-auto-load class="soft">Load</button>
+            <button data-auto-clear class="subtle">Clear</button>
+          </div>
+        </div>`
+      : '';
+
+    const slotsHtml = slots.map((s) => {
       if (s.empty) {
         return `<div class="slot-row empty">
           <div class="slot-label">Slot ${s.n}: <span class="muted small">empty</span></div>
           <div class="slot-actions"><button data-slot-save="${s.n}">Save here</button></div>
         </div>`;
       }
-      const date = new Date(s.ts);
-      const ago = date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const name = s.name ? escapeAttr(s.name) : '';
       return `<div class="slot-row">
         <div class="slot-label">
-          <b>Slot ${s.n}</b>
-          <span class="muted small">round ${s.round} · doom ${s.doom}${s.finalAct ? ' · ⚡FA' : ''} · seed ${s.seed} · ${ago}</span>
+          <input class="slot-name-input" data-slot-rename="${s.n}" type="text" value="${name}" placeholder="Slot ${s.n}" title="Click to rename" />
+          <span class="muted small">round ${s.round} · doom ${s.doom}${s.finalAct ? ' · ⚡FA' : ''} · seed ${s.seed} · ${fmtTime(s.ts)}</span>
         </div>
         <div class="slot-actions">
           <button data-slot-load="${s.n}" class="soft">Load</button>
@@ -464,7 +508,9 @@ export function mountControls(root, { onNewState }) {
         </div>
       </div>`;
     }).join('');
-    // Wire actions
+
+    root.innerHTML = autoHtml + slotsHtml;
+
     root.querySelectorAll('[data-slot-save]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (!state) return;
@@ -475,14 +521,7 @@ export function mountControls(root, { onNewState }) {
     root.querySelectorAll('[data-slot-load]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const loaded = loadSlot(parseInt(btn.dataset.slotLoad, 10));
-        if (!loaded?.state) return;
-        state = loaded.state;
-        $('playerCount').value = String(state.players.length);
-        const humans = state.players.filter((p) => p.policy === 'manual').length;
-        $('humanCount').value = humans === state.players.length ? 'all' : humans >= 2 ? '2' : humans >= 1 ? '1' : '0';
-        $('seed').value = String(state.seed);
-        refreshActionList();
-        onNewState(state);
+        applyLoadedState(loaded?.state);
       });
     });
     root.querySelectorAll('[data-slot-clear]').forEach((btn) => {
@@ -491,12 +530,42 @@ export function mountControls(root, { onNewState }) {
         renderSlots();
       });
     });
+    root.querySelectorAll('[data-slot-rename]').forEach((input) => {
+      input.addEventListener('blur', () => {
+        renameSlot(parseInt(input.dataset.slotRename, 10), input.value.trim());
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') input.blur();
+      });
+    });
+    root.querySelector('[data-auto-load]')?.addEventListener('click', () => {
+      const loaded = loadAutoFinalActSnapshot();
+      applyLoadedState(loaded?.state);
+    });
+    root.querySelector('[data-auto-clear]')?.addEventListener('click', () => {
+      clearAutoFinalActSnapshot();
+      renderSlots();
+    });
   }
+  function escapeAttr(s) { return String(s).replace(/"/g, '&quot;'); }
   renderSlots();
+  function startTutorialGame() {
+    // Lock the player config to the tutorial constants so every run produces
+    // the same game state: same map, same classes, same threats.
+    $('playerCount').value = String(TUTORIAL_CONFIG.playerCount);
+    $('humanCount').value = String(TUTORIAL_CONFIG.humans);
+    $('policy').value = TUTORIAL_CONFIG.aiPolicy;
+    $('seed').value = String(TUTORIAL_CONFIG.seed);
+    newGame({ seed: TUTORIAL_CONFIG.seed });
+  }
   $('startTutorial').addEventListener('click', () => {
-    // Restart on a known-friendly seed so the tutorial flow is predictable.
-    newGame({ seed: 7 });
+    startTutorialGame();
     tutorial.start();
+  });
+  tutorial.setExitHook(() => {
+    // After the user exits the tutorial, start a fresh game with their
+    // current sidebar selections (not the tutorial's locked settings).
+    newGame();
   });
   $('resumeGame').addEventListener('click', () => {
     showResumeModal();
@@ -548,9 +617,10 @@ export function mountControls(root, { onNewState }) {
     if (btn) btn.hidden = !hasResumableSave();
   }
   refreshResumeButton();
-  // Also refresh on every render, since saves update with play.
+  // Also refresh on every render, since saves update with play. Also redraws
+  // the slot list so the auto-snapshot row appears when Final Act triggers.
   const _prevOnNewState = onNewState;
-  onNewState = (s) => { _prevOnNewState(s); refreshResumeButton(); };
+  onNewState = (s) => { _prevOnNewState(s); refreshResumeButton(); renderSlots(); };
   // Re-thread the new wrapper into the tutorial renderHook so it picks up the latest one.
   tutorial.setRenderHook(() => onNewState(state));
 
@@ -565,7 +635,7 @@ export function mountControls(root, { onNewState }) {
   if (tutorial.isFirstVisit()) {
     setTimeout(() => {
       clearSavedState();
-      newGame({ seed: 7 });
+      startTutorialGame();
       tutorial.start();
     }, 50);
   }

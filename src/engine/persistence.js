@@ -6,11 +6,38 @@
 import { RACES, CLASSES, EVENTS, THREATS, QUESTS } from './data.js';
 import { makeRng } from './rng.js';
 
-const SAVE_KEY = 'partyquest:save-v1';
-const RECORD_KEY = 'partyquest:record';
-const SLOT_KEY = (n) => `partyquest:slot-${n}`;
-const AUTO_FA_KEY = 'partyquest:autosnap-finalact';
+const SAVE_KEY       = 'partyquest:save-v1';
+const RECORD_KEY     = 'partyquest:record';
+const SLOT_KEY       = (n) => `partyquest:slot-${n}`;
+const AUTO_FA_KEY    = 'partyquest:autosnap-finalact';
+const SLOT_ORDER_KEY = 'partyquest:slot-order';
 export const SLOT_COUNT = 3;
+
+// Slot display order — an array like [2, 1, 3] meaning slot-2 is shown first.
+export function getSlotOrder() {
+  try {
+    const raw = localStorage.getItem(SLOT_ORDER_KEY);
+    if (!raw) return Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
+    const o = JSON.parse(raw);
+    // Validate: must be a permutation of 1..SLOT_COUNT
+    if (Array.isArray(o) && o.length === SLOT_COUNT && new Set(o).size === SLOT_COUNT) return o;
+  } catch {}
+  return Array.from({ length: SLOT_COUNT }, (_, i) => i + 1);
+}
+
+export function setSlotOrder(order) {
+  try { localStorage.setItem(SLOT_ORDER_KEY, JSON.stringify(order)); } catch {}
+}
+
+// Swap two slot numbers in both storage AND the order array.
+export function swapSlots(a, b) {
+  const rawA = localStorage.getItem(SLOT_KEY(a));
+  const rawB = localStorage.getItem(SLOT_KEY(b));
+  if (rawA != null) localStorage.setItem(SLOT_KEY(b), rawA);
+  else localStorage.removeItem(SLOT_KEY(b));
+  if (rawB != null) localStorage.setItem(SLOT_KEY(a), rawB);
+  else localStorage.removeItem(SLOT_KEY(a));
+}
 
 export function saveState(state) {
   if (!state) return;

@@ -8,7 +8,7 @@ import { legalActions } from '../engine/actions.js';
 import { activePlayer } from '../engine/state.js';
 import { createTutorial, TUTORIAL_CONFIG } from './tutorial.js';
 import { checkLogForToasts, resetToastTracking } from './toasts.js';
-import { saveState, loadSavedState, clearSavedState, recordOutcome, loadRecord, resetRecord, saveSlot, loadSlot, listSlots, clearSlot, renameSlot, saveAutoFinalActSnapshot, loadAutoFinalActSnapshot, getAutoFinalActMeta, clearAutoFinalActSnapshot } from '../engine/persistence.js';
+import { saveState, loadSavedState, clearSavedState, recordOutcome, loadRecord, resetRecord, saveSlot, loadSlot, listSlots, clearSlot, renameSlot, saveAutoFinalActSnapshot, loadAutoFinalActSnapshot, getAutoFinalActMeta, clearAutoFinalActSnapshot, getSlotOrder, setSlotOrder, swapSlots } from '../engine/persistence.js';
 
 export function mountControls(root, { onNewState }) {
   let state = null;
@@ -498,7 +498,9 @@ export function mountControls(root, { onNewState }) {
     onNewState(state); // re-render so header badge disappears
   });
 
-  // ---- Save slots ----
+  // ---- Save slots (with drag-to-reorder) ----
+  let dragSrcSlotN = null; // slot number being dragged
+
   function applyLoadedState(loadedState) {
     if (!loadedState) return;
     state = loadedState;
@@ -517,80 +519,121 @@ export function mountControls(root, { onNewState }) {
   function renderSlots() {
     const root = $('slotsRoot');
     if (!root) return;
-    const slots = listSlots();
+
+    const order    = getSlotOrder();
+    const allSlots = listSlots();
+    // Display slots in the persisted order
+    const orderedSlots = order.map((n) => allSlots.find((s) => s.n === n) || { n, empty: true });
     const autoMeta = getAutoFinalActMeta();
 
-    // Auto-snapshot row first (only shown when one exists)
-    const autoHtml = autoMeta
-      ? `<div class="slot-row auto-snapshot">
-          <div class="slot-label">
-            <b>⚡ Auto-saved: Final Act start</b>
-            <span class="muted small">round ${autoMeta.round} · seed ${autoMeta.seed} · ${fmtTime(autoMeta.ts)}</span>
-          </div>
-          <div class="slot-actions">
-            <button data-auto-load class="soft">Load</button>
-            <button data-auto-clear class="subtle">Clear</button>
-          </div>
-        </div>`
-      : '';
+    root.innerHTML = '';
 
-    const slotsHtml = slots.map((s) => {
-      if (s.empty) {
-        return `<div class="slot-row empty">
-          <div class="slot-label">Slot ${s.n}: <span class="muted small">empty</span></div>
-          <div class="slot-actions"><button data-slot-save="${s.n}">Save here</button></div>
-        </div>`;
-      }
-      const name = s.name ? escapeAttr(s.name) : '';
-      return `<div class="slot-row">
+    // Auto-snapshot row (not draggable — always pinned to top)
+    if (autoMeta) {
+      const autoRow = document.createElement('div');
+      autoRow.className = 'slot-row auto-snapshot';
+      autoRow.innerHTML = `
         <div class="slot-label">
-          <input class="slot-name-input" data-slot-rename="${s.n}" type="text" value="${name}" placeholder="Slot ${s.n}" title="Click to rename" />
-          <span class="muted small">round ${s.round} · doom ${s.doom}${s.finalAct ? ' · ⚡FA' : ''} · seed ${s.seed} · ${fmtTime(s.ts)}</span>
+          <b>⚡ Auto-saved: Final Act start</b>
+          <span class="muted small">round ${autoMeta.round} · seed ${autoMeta.seed} · ${fmtTime(autoMeta.ts)}</span>
         </div>
         <div class="slot-actions">
-          <button data-slot-load="${s.n}" class="soft">Load</button>
-          <button data-slot-save="${s.n}" title="Overwrite this slot with the current game">Save</button>
-          <button data-slot-clear="${s.n}" class="subtle">Clear</button>
-        </div>
-      </div>`;
-    }).join('');
+          <button data-auto-load class="soft">Load</button>
+          <button data-auto-clear class="subtle">Clear</button>
+        </div>`;
+      autoRow.querySelector('[data-auto-load]').addEventListener('click', () => {
+        applyLoadedState(loadAutoFinalActSnapshot()?.state);
+      });
+      autoRow.querySelector('[data-auto-clear]').addEventListener('click', () => {
+        clearAutoFinalActSnapshot(); renderSlots();
+      });
+      root.appendChild(autoRow);
+    }
 
-    root.innerHTML = autoHtml + slotsHtml;
+    // Draggable manual slot rows
+    orderedSlots.forEach((s) => {
+      const row = document.createElement('div');
+      row.className = 'slot-row' + (s.empty ? ' empty' : '');
+      row.draggable = true;
+      row.dataset.slotN = String(s.n);
 
-    root.querySelectorAll('[data-slot-save]').forEach((btn) => {
-      btn.addEventListener('click', () => {
+      const name = s.name ? escapeAttr(s.name) : '';
+      row.innerHTML = s.empty
+        ? `<span class="slot-grip" title="Drag to reorder">⠿</span>
+           <div class="slot-label">
+             <input class="slot-name-input" data-slot-rename="${s.n}" type="text" value="${name}" placeholder="Slot ${s.n}" title="Click to name this slot" />
+             <span class="muted small">empty</span>
+           </div>
+           <div class="slot-actions"><button data-slot-save="${s.n}">Save here</button></div>`
+        : `<span class="slot-grip" title="Drag to reorder">⠿</span>
+           <div class="slot-label">
+             <input class="slot-name-input" data-slot-rename="${s.n}" type="text" value="${name}" placeholder="Slot ${s.n}" title="Click to rename" />
+             <span class="muted small">round ${s.round} · doom ${s.doom}${s.finalAct ? ' · ⚡FA' : ''} · seed ${s.seed} · ${fmtTime(s.ts)}</span>
+           </div>
+           <div class="slot-actions">
+             <button data-slot-load="${s.n}" class="soft">Load</button>
+             <button data-slot-save="${s.n}" title="Overwrite with current game">Save</button>
+             <button data-slot-clear="${s.n}" class="subtle">Clear</button>
+           </div>`;
+
+      // Action wiring
+      row.querySelector('[data-slot-save]')?.addEventListener('click', () => {
         if (!state) return;
-        saveSlot(parseInt(btn.dataset.slotSave, 10), state);
+        const input = row.querySelector('.slot-name-input');
+        saveSlot(s.n, state, input?.value.trim() || '');
         renderSlots();
       });
-    });
-    root.querySelectorAll('[data-slot-load]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const loaded = loadSlot(parseInt(btn.dataset.slotLoad, 10));
-        applyLoadedState(loaded?.state);
+      row.querySelector('[data-slot-load]')?.addEventListener('click', () => {
+        applyLoadedState(loadSlot(s.n)?.state);
       });
-    });
-    root.querySelectorAll('[data-slot-clear]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        clearSlot(parseInt(btn.dataset.slotClear, 10));
+      row.querySelector('[data-slot-clear]')?.addEventListener('click', () => {
+        clearSlot(s.n); renderSlots();
+      });
+      row.querySelector('[data-slot-rename]')?.addEventListener('blur', (e) => {
+        renameSlot(s.n, e.target.value.trim());
+      });
+      row.querySelector('[data-slot-rename]')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') e.target.blur();
+      });
+
+      // Drag-and-drop
+      row.addEventListener('dragstart', (e) => {
+        dragSrcSlotN = s.n;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', String(s.n));
+        setTimeout(() => row.classList.add('dragging'), 0);
+      });
+      row.addEventListener('dragend', () => {
+        dragSrcSlotN = null;
+        root.querySelectorAll('.slot-row').forEach((r) => {
+          r.classList.remove('dragging', 'drag-over');
+        });
+      });
+      row.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (dragSrcSlotN !== s.n) row.classList.add('drag-over');
+      });
+      row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+      row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        row.classList.remove('drag-over');
+        if (dragSrcSlotN == null || dragSrcSlotN === s.n) return;
+        // Swap the underlying slot data in localStorage
+        swapSlots(dragSrcSlotN, s.n);
+        // Update the display order: wherever dragSrc was, put target; and vice versa
+        const newOrder = getSlotOrder();
+        const iA = newOrder.indexOf(dragSrcSlotN);
+        const iB = newOrder.indexOf(s.n);
+        if (iA !== -1 && iB !== -1) {
+          [newOrder[iA], newOrder[iB]] = [newOrder[iB], newOrder[iA]];
+          setSlotOrder(newOrder);
+        }
+        dragSrcSlotN = null;
         renderSlots();
       });
-    });
-    root.querySelectorAll('[data-slot-rename]').forEach((input) => {
-      input.addEventListener('blur', () => {
-        renameSlot(parseInt(input.dataset.slotRename, 10), input.value.trim());
-      });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') input.blur();
-      });
-    });
-    root.querySelector('[data-auto-load]')?.addEventListener('click', () => {
-      const loaded = loadAutoFinalActSnapshot();
-      applyLoadedState(loaded?.state);
-    });
-    root.querySelector('[data-auto-clear]')?.addEventListener('click', () => {
-      clearAutoFinalActSnapshot();
-      renderSlots();
+
+      root.appendChild(row);
     });
   }
   function escapeAttr(s) { return String(s).replace(/"/g, '&quot;'); }

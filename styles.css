@@ -592,6 +592,26 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .slot-label .muted { display: block; font-size: 10px; }
 .slot-row.auto-snapshot { border-color: var(--doom); background: linear-gradient(180deg, #3a2520 0%, var(--panel) 100%); }
 .slot-row.auto-snapshot b { color: var(--doom); }
+
+/* Drag-to-reorder */
+.slot-grip {
+  color: var(--border-2);
+  font-size: 18px;
+  line-height: 1;
+  cursor: grab;
+  padding: 0 4px;
+  user-select: none;
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.slot-grip:hover { color: var(--gold-dim); }
+.slot-row { cursor: default; transition: background 0.15s, transform 0.15s, opacity 0.15s; }
+.slot-row.dragging { opacity: 0.4; transform: scale(0.98); }
+.slot-row.drag-over {
+  background: linear-gradient(90deg, rgba(224, 188, 115, 0.12) 0%, rgba(224, 188, 115, 0.04) 100%);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(224, 188, 115, 0.3);
+}
 .slot-name-input {
   background: transparent;
   border: 1px solid transparent;

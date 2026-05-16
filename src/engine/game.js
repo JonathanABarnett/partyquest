@@ -18,6 +18,7 @@ export function step(state, decisionFn) {
     state.currentPlayerIdx = 0;
     state.actionsThisTurn = 0;
     skipDeadPlayers(state);
+    state.actionHistory?.push({ phase: 'world', round: state.round });
     return 'world';
   }
 
@@ -32,6 +33,7 @@ export function step(state, decisionFn) {
     if (state.actionsThisTurn === 0) maybeAutoTriggerAbility(state, p);
     const legal = legalActions(state);
     const choice = decisionFn(state, p, legal);
+    state.actionHistory?.push({ phase: state.phase, round: state.round, playerIdx: state.currentPlayerIdx, action: choice });
     performAction(state, choice);
     if (state.finalAct?.resolved) {
       finalizeFinalAct(state);

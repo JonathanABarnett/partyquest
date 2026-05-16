@@ -136,6 +136,10 @@ export function setupGame({ seed = Date.now(), players, config = {} }) {
     finalAct: null,
     outcome: null,
     log: [{ round: 0, msg: `Game start (seed ${seed}, ${playerStates.length} players)` }],
+    // Action history for the replay viewer. Each entry records the engine
+    // step taken: { phase, round, playerIdx, action }. World-phase steps
+    // record a synthetic { phase: 'world' } row to keep replay aligned.
+    actionHistory: [],
   };
 }
 

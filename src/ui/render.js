@@ -35,6 +35,7 @@ export function renderAll(state, root, ctx = {}) {
   const tutorial = ctx.tutorial;
   root.innerHTML = '';
   if (tutorial?.current()) root.appendChild(renderTutorialBanner(tutorial));
+  if (ctx.isReplaying?.()) root.appendChild(renderReplayBanner(ctx));
   if (state.outcome) root.appendChild(renderGameOver(state, ctx));
   root.appendChild(renderHeader(state));
   root.appendChild(renderHint(state));
@@ -47,6 +48,18 @@ export function renderAll(state, root, ctx = {}) {
   if (tutorial?.current()) {
     requestAnimationFrame(() => applyTutorialHighlight(tutorial.current()));
   }
+}
+
+function renderReplayBanner(ctx) {
+  const el = document.createElement('div');
+  el.className = 'replay-banner';
+  el.innerHTML = `
+    <span class="replay-icon">▶</span>
+    <span><b>Replaying</b> — watching the recorded action history at 0.5s per step.</span>
+    <button class="link-btn" data-action="stop-replay">■ Stop</button>
+  `;
+  el.querySelector('[data-action="stop-replay"]').addEventListener('click', () => ctx.onStopReplay?.());
+  return el;
 }
 
 function renderTutorialBanner(tutorial) {
@@ -135,10 +148,14 @@ function renderGameOver(state, ctx) {
       <button class="link-btn" data-action="copy-seed" title="Copy seed to clipboard">copy</button>
     </div>
     <div class="gameover-actions">
-      <button class="primary" data-action="replay-seed" title="Same map, same threats — different decisions">↻ Replay this seed</button>
+      ${state.actionHistory?.length ? `<button class="primary" data-action="watch-replay" title="Watch this exact game played back action-by-action at 0.5s/step">▶ Watch replay</button>` : ''}
+      <button data-action="replay-seed" title="Same map, same threats — different decisions">↻ Replay this seed</button>
       <button data-action="new-game" title="Same map ID + 1; a fresh game">→ New game (seed +1)</button>
     </div>
   `;
+  el.querySelector('[data-action="watch-replay"]')?.addEventListener('click', () => {
+    ctx.onReplayGame?.();
+  });
   el.querySelector('[data-action="replay-seed"]').addEventListener('click', () => {
     ctx.onReplaySeed?.(state.seed);
   });

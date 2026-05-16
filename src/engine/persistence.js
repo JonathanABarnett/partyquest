@@ -8,6 +8,8 @@ import { makeRng } from './rng.js';
 
 const SAVE_KEY = 'partyquest:save-v1';
 const RECORD_KEY = 'partyquest:record';
+const SLOT_KEY = (n) => `partyquest:slot-${n}`;
+export const SLOT_COUNT = 3;
 
 export function saveState(state) {
   if (!state) return;
@@ -52,6 +54,52 @@ export function recordOutcome(outcome) {
 
 export function resetRecord() {
   try { localStorage.removeItem(RECORD_KEY); } catch {}
+}
+
+// --- Named save slots (in addition to the auto-save / resume slot) ---
+// Each slot is a manually-named snapshot the player can save into and load
+// back from. Same serialize format; just a different storage key.
+
+export function saveSlot(n, state) {
+  if (!state || n < 1 || n > SLOT_COUNT) return;
+  try {
+    const meta = {
+      ts: Date.now(),
+      round: state.round,
+      doom: state.doomClock,
+      finalAct: !!state.finalAct,
+      playerCount: state.players.length,
+      humanCount: state.players.filter((p) => p.policy === 'manual').length,
+      seed: state.seed,
+    };
+    const blob = { meta, state: serialize(state) };
+    localStorage.setItem(SLOT_KEY(n), JSON.stringify(blob));
+    return meta;
+  } catch { return null; }
+}
+
+export function loadSlot(n) {
+  try {
+    const raw = localStorage.getItem(SLOT_KEY(n));
+    if (!raw) return null;
+    const blob = JSON.parse(raw);
+    return { meta: blob.meta, state: deserialize(blob.state) };
+  } catch { return null; }
+}
+
+export function listSlots() {
+  const out = [];
+  for (let n = 1; n <= SLOT_COUNT; n++) {
+    try {
+      const raw = localStorage.getItem(SLOT_KEY(n));
+      out.push(raw ? { n, ...JSON.parse(raw).meta } : { n, empty: true });
+    } catch { out.push({ n, empty: true }); }
+  }
+  return out;
+}
+
+export function clearSlot(n) {
+  try { localStorage.removeItem(SLOT_KEY(n)); } catch {}
 }
 
 function byId(list, id) { return list.find((x) => x.id === id); }
@@ -100,6 +148,7 @@ function serialize(s) {
     finalAct: s.finalAct,
     outcome: s.outcome,
     log: (s.log || []).slice(-200),
+    actionHistory: (s.actionHistory || []).slice(-500),
   };
 }
 
@@ -154,5 +203,6 @@ function deserialize(d) {
     finalAct: d.finalAct,
     outcome: d.outcome,
     log: d.log || [],
+    actionHistory: d.actionHistory || [],
   };
 }

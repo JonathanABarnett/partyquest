@@ -19,6 +19,9 @@ api = mountControls(controlRoot, {
     onAction: (action) => api?.dispatch(action),
     onNewGame: () => api?.newGame(),
     onReplaySeed: (seed) => api?.replaySeed(seed),
+    onReplayGame: () => api?.startReplay(api.getState()),
+    onStopReplay: () => api?.stopReplay(),
+    isReplaying: () => !!api?.isReplaying(),
     tutorial: api?.tutorial,
   }),
 });

@@ -535,6 +535,66 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .manual-fallback { margin: 4px 0; padding: 4px; }
 .manual-fallback summary { cursor: pointer; color: var(--muted); }
 
+/* ---- Save slots ---- */
+.slots-panel { margin: 8px 0; padding: 6px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; }
+.slots-panel summary { cursor: pointer; padding: 4px; color: var(--gold); }
+.slots-panel summary h4 { margin: 0; display: inline-block; color: var(--gold); }
+.slots-list { display: flex; flex-direction: column; gap: 6px; padding: 8px 4px 4px; }
+.slot-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 6px 8px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px;
+}
+.slot-row.empty { opacity: 0.7; }
+.slot-label b { color: var(--gold); }
+.slot-label .muted { display: block; font-size: 10px; }
+.slot-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.slot-actions button { font-size: 11px; padding: 4px 8px; }
+.slot-actions button.soft { background: var(--panel-2); border-color: var(--border); color: var(--text); }
+.slot-actions button.subtle { background: transparent; border-color: var(--border); color: var(--muted); }
+.slot-actions button.subtle:hover { color: var(--danger); border-color: var(--danger); background: transparent; }
+
+/* ---- Resume modal ---- */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 1000;
+  animation: modal-fade-in 0.2s ease-out;
+}
+@keyframes modal-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.modal-card {
+  background: linear-gradient(180deg, #3d3024 0%, var(--panel) 100%);
+  border: 2px solid var(--gold);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 460px; width: 90%;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+}
+.modal-card h3 { font-size: 18px; color: var(--gold); margin: 0 0 16px; font-family: 'Georgia', serif; text-transform: none; letter-spacing: 0.02em; }
+.modal-meta { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 6px; }
+.modal-meta b { color: var(--gold); }
+.modal-fa-badge { grid-column: 1 / -1; color: var(--doom); font-weight: 700; }
+.modal-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.modal-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 8px 16px; font-weight: 700; }
+.modal-actions button.subtle { background: transparent; border-color: var(--border); color: var(--muted); padding: 8px 16px; }
+.modal-actions button.subtle:hover { background: var(--panel-2); color: var(--text); border-color: var(--text); }
+
+/* ---- Replay banner ---- */
+.replay-banner {
+  background: linear-gradient(90deg, #4a4028 0%, #2e2520 100%);
+  border: 2px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.replay-banner .replay-icon { font-size: 18px; color: var(--accent); }
+.replay-banner b { color: var(--accent); }
+.replay-banner button { margin-left: auto; }
+
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { max-height: none; border-right: none; border-bottom: 1px solid var(--border-2); position: static; }

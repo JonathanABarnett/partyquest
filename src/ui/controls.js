@@ -7,7 +7,7 @@ import { runBatch, runVarianceCheck, runSweep } from '../sim/batch.js';
 import { legalActions } from '../engine/actions.js';
 import { activePlayer } from '../engine/state.js';
 import { createTutorial } from './tutorial.js';
-import { saveState, loadSavedState, clearSavedState, recordOutcome, loadRecord } from '../engine/persistence.js';
+import { saveState, loadSavedState, clearSavedState, recordOutcome, loadRecord, resetRecord, saveSlot, loadSlot, listSlots, clearSlot } from '../engine/persistence.js';
 
 export function mountControls(root, { onNewState }) {
   let state = null;
@@ -77,6 +77,10 @@ export function mountControls(root, { onNewState }) {
       <button id="stepRound">Step 1 round</button>
       <button id="playOut">Play to end</button>
     </div>
+    <details class="slots-panel">
+      <summary><h4 style="display:inline">Save slots</h4></summary>
+      <div id="slotsRoot" class="slots-list"></div>
+    </details>
     <details class="manual-fallback">
       <summary class="muted small">Manual action dropdown (fallback)</summary>
       <div class="control-row">
@@ -98,6 +102,9 @@ export function mountControls(root, { onNewState }) {
       <div class="control-row">
         <button id="applySettings">Apply &amp; start new game</button>
         <button id="resetSettings">Reset to v1.2 defaults</button>
+      </div>
+      <div class="control-row">
+        <button id="resetRecord" title="Clear the W/L badge in the header. Does not affect saved games.">⌫ Reset W/L record</button>
       </div>
     </details>
     <hr/>
@@ -145,6 +152,47 @@ export function mountControls(root, { onNewState }) {
   }
 
   // Restore an in-progress saved game. Called from the "Resume" button.
+  // ---- Replay viewer ----
+  let replayTimer = null;
+  function startReplay(snapshot) {
+    if (!snapshot?.actionHistory?.length) return;
+    stopReplay();
+    // Recreate a fresh state with the same seed/config/players. We can't
+    // just walk the saved state — the engine's step machine has to apply
+    // each action again to keep state consistent.
+    const playersDef = snapshot.players.map((p) => ({
+      name: p.name, policy: p.policy,
+      race: p.race?.id, class: p.class?.id, alignment: p.alignment,
+    }));
+    state = setupGame({ seed: snapshot.seed, players: playersDef, config: snapshot.config });
+    refreshActionList();
+    onNewState(state);
+    const history = snapshot.actionHistory.slice();
+    let idx = 0;
+    const STEP_MS = 500;
+    replayTimer = setInterval(() => {
+      if (idx >= history.length || state.outcome) {
+        stopReplay();
+        return;
+      }
+      const item = history[idx++];
+      if (item.phase === 'world') {
+        // World phases auto-run from the step machine, so just advance.
+        step(state, decisionFn);
+      } else {
+        // Drive the engine with the recorded action.
+        step(state, () => item.action);
+      }
+      refreshActionList();
+      onNewState(state);
+    }, STEP_MS);
+  }
+  function stopReplay() {
+    if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+    // Re-render so the .replay-banner disappears
+    if (state) onNewState(state);
+  }
+
   function resumeFromSave() {
     const saved = loadSavedState();
     if (!saved || saved.outcome) return false;
@@ -385,16 +433,114 @@ export function mountControls(root, { onNewState }) {
   $('runSweep').addEventListener('click', runSweepPreset);
   $('applySettings').addEventListener('click', applySettings);
   $('resetSettings').addEventListener('click', resetSettings);
+  $('resetRecord').addEventListener('click', () => {
+    resetRecord();
+    onNewState(state); // re-render so header badge disappears
+  });
+
+  // ---- Save slots ----
+  function renderSlots() {
+    const root = $('slotsRoot');
+    if (!root) return;
+    const slots = listSlots();
+    root.innerHTML = slots.map((s) => {
+      if (s.empty) {
+        return `<div class="slot-row empty">
+          <div class="slot-label">Slot ${s.n}: <span class="muted small">empty</span></div>
+          <div class="slot-actions"><button data-slot-save="${s.n}">Save here</button></div>
+        </div>`;
+      }
+      const date = new Date(s.ts);
+      const ago = date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return `<div class="slot-row">
+        <div class="slot-label">
+          <b>Slot ${s.n}</b>
+          <span class="muted small">round ${s.round} · doom ${s.doom}${s.finalAct ? ' · ⚡FA' : ''} · seed ${s.seed} · ${ago}</span>
+        </div>
+        <div class="slot-actions">
+          <button data-slot-load="${s.n}" class="soft">Load</button>
+          <button data-slot-save="${s.n}" title="Overwrite this slot with the current game">Save</button>
+          <button data-slot-clear="${s.n}" class="subtle">Clear</button>
+        </div>
+      </div>`;
+    }).join('');
+    // Wire actions
+    root.querySelectorAll('[data-slot-save]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (!state) return;
+        saveSlot(parseInt(btn.dataset.slotSave, 10), state);
+        renderSlots();
+      });
+    });
+    root.querySelectorAll('[data-slot-load]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const loaded = loadSlot(parseInt(btn.dataset.slotLoad, 10));
+        if (!loaded?.state) return;
+        state = loaded.state;
+        $('playerCount').value = String(state.players.length);
+        const humans = state.players.filter((p) => p.policy === 'manual').length;
+        $('humanCount').value = humans === state.players.length ? 'all' : humans >= 2 ? '2' : humans >= 1 ? '1' : '0';
+        $('seed').value = String(state.seed);
+        refreshActionList();
+        onNewState(state);
+      });
+    });
+    root.querySelectorAll('[data-slot-clear]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        clearSlot(parseInt(btn.dataset.slotClear, 10));
+        renderSlots();
+      });
+    });
+  }
+  renderSlots();
   $('startTutorial').addEventListener('click', () => {
     // Restart on a known-friendly seed so the tutorial flow is predictable.
     newGame({ seed: 7 });
     tutorial.start();
   });
   $('resumeGame').addEventListener('click', () => {
-    if (!resumeFromSave()) {
-      $('resumeGame').hidden = true;
-    }
+    showResumeModal();
   });
+
+  function showResumeModal() {
+    const saved = loadSavedState();
+    if (!saved || saved.outcome) {
+      $('resumeGame').hidden = true;
+      return;
+    }
+    const humans = saved.players.filter((p) => p.policy === 'manual').length;
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <h3>Resume your last game?</h3>
+        <div class="modal-meta">
+          <div><span class="muted">Round</span> <b>${saved.round}</b></div>
+          <div><span class="muted">Doom</span> <b>${saved.doomClock} / ${saved.config.doomMax}</b></div>
+          <div><span class="muted">Players</span> <b>${saved.players.length}</b> <span class="muted small">(${humans} human)</span></div>
+          <div><span class="muted">Seed</span> <code>${saved.seed}</code></div>
+          ${saved.finalAct ? '<div class="modal-fa-badge">⚡ Final Act in progress</div>' : ''}
+        </div>
+        <div class="modal-actions">
+          <button class="primary" data-modal="resume">↺ Resume game</button>
+          <button class="subtle" data-modal="discard">✕ Discard save</button>
+          <button class="subtle" data-modal="cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    overlay.querySelector('[data-modal="resume"]').addEventListener('click', () => {
+      overlay.remove();
+      resumeFromSave();
+    });
+    overlay.querySelector('[data-modal="discard"]').addEventListener('click', () => {
+      overlay.remove();
+      clearSavedState();
+      $('resumeGame').hidden = true;
+    });
+    overlay.querySelector('[data-modal="cancel"]').addEventListener('click', () => overlay.remove());
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  }
 
   // Show the Resume button only when a saved in-progress game exists.
   function refreshResumeButton() {
@@ -434,6 +580,9 @@ export function mountControls(root, { onNewState }) {
     replaySeed: (seed) => { clearSavedState(); newGame({ seed }); },
     tutorial,
     getRecord: loadRecord,
+    startReplay: (snapshot) => startReplay(snapshot || state),
+    stopReplay,
+    isReplaying: () => replayTimer != null,
   };
 }
 

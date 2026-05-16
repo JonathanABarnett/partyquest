@@ -96,6 +96,9 @@ export function mountControls(root, { onNewState }) {
       name: `P${i + 1}`, policy,
     }));
     state = setupGame({ seed, players, config: configOverride });
+    // Auto-run World phase 1 so the user lands in Player phase with action
+    // buttons live. Otherwise the page looks dead on load.
+    if (state.phase === 'world') step(state, decisionFn);
     refreshActionList();
     onNewState(state);
   }

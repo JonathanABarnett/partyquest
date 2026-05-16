@@ -95,7 +95,91 @@ hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .delta-neg { color: var(--danger); font-weight: 600; }
 .sweep-table td:nth-child(2) { color: var(--gold); }
 
+/* ---- v1.4 UI ---- */
+
+/* Clickable map tiles */
+.tile.here { box-shadow: inset 0 0 0 2px var(--accent); }
+.tile.move-target {
+  border-color: var(--accent-2);
+  background: linear-gradient(180deg, var(--panel-2) 0%, #2c3a30 100%);
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+.tile.move-target:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(126, 160, 138, 0.4);
+  border-color: var(--accent);
+}
+
+/* Per-player action buttons */
+.player-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.player-actions button {
+  font-size: 12px; padding: 6px 10px; border-radius: 6px; cursor: pointer;
+  background: var(--accent); border: 1px solid var(--accent); color: #fff; font-weight: 600;
+}
+.player-actions button:hover { filter: brightness(1.1); }
+.player-actions button.soft { background: var(--panel-2); border-color: var(--border); color: var(--text); font-weight: 500; }
+.player-actions button.soft:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.player-actions button.gold { background: var(--gold); border-color: var(--gold); color: #1a1820; }
+.player-actions button.gold:hover { filter: brightness(1.1); }
+.player-actions button.subtle { background: transparent; border-color: var(--border); color: var(--muted); font-weight: 500; }
+.player-actions button.subtle:hover { background: var(--panel-2); color: var(--text); border-color: var(--text); }
+
+/* HP bar */
+.hp-bar { position: relative; width: 80px; height: 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.hp-bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, var(--danger) 0%, var(--gold) 50%, var(--accent-2) 100%); transition: width 0.2s; }
+.hp-bar span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--text); text-shadow: 0 0 2px #000; }
+.favors-pill { background: var(--panel); padding: 3px 8px; border-radius: 12px; border: 1px solid var(--border); font-size: 11px; margin-top: 4px; text-align: center; }
+.player-vitals { display: flex; flex-direction: column; gap: 4px; }
+
+/* Pending bonus / reroll badges */
+.badge { background: var(--gold); color: #1a1820; padding: 1px 6px; border-radius: 8px; font-size: 10px; font-weight: 700; }
+
+/* Final Act banner with progress bars */
+.final-act-panel { border-color: var(--doom); background: linear-gradient(180deg, var(--panel) 0%, #2d2126 100%); }
+.fa-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.fa-head h3 { color: var(--doom); font-size: 14px; }
+.fa-bars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.fa-bar-label { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.fa-bar-track { height: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.fa-bar-fill { height: 100%; background: var(--gold); transition: width 0.3s; }
+.fa-bar.lawful .fa-bar-fill { background: #6e9aff; }
+.fa-bar.neutral .fa-bar-fill { background: #a5cf6e; }
+.fa-bar.chaotic .fa-bar-fill { background: #d6618a; }
+.fa-bar.done .fa-bar-track { box-shadow: 0 0 10px currentColor; }
+.fa-bar.done .fa-bar-label { color: var(--gold); }
+
+/* Game over panel */
+.gameover-panel { border: 2px solid var(--gold); background: linear-gradient(180deg, var(--panel) 0%, #2c2530 100%); }
+.gameover-panel.win { border-color: var(--accent-2); }
+.gameover-panel.loss { border-color: var(--doom); }
+.gameover-head h2 { font-family: 'Georgia', serif; margin: 0 0 4px; color: var(--gold); }
+.gameover-panel.win .gameover-head h2 { color: var(--accent-2); }
+.gameover-panel.loss .gameover-head h2 { color: var(--doom); }
+.scores-table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 13px; }
+.scores-table th, .scores-table td { padding: 4px 8px; text-align: left; border-bottom: 1px solid var(--border); }
+.scores-table tr.top { background: rgba(215, 181, 109, 0.1); }
+.scores-table tr.top td { color: var(--gold); }
+.gameover-actions { margin-top: 12px; }
+.gameover-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 8px 16px; font-weight: 600; }
+
+/* Settings panel (collapsible) */
+.settings-panel { margin: 8px 0; padding: 6px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; }
+.settings-panel[open] { padding: 10px; }
+.settings-panel summary { cursor: pointer; font-size: 12px; padding: 4px; }
+.settings-panel summary h4 { margin: 0; display: inline-block; }
+.settings-panel .toggle { flex-direction: row; align-items: center; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); gap: 6px; }
+.settings-panel .toggle input { margin: 0; }
+.settings-panel input[type=number] { width: 70px; }
+
+.manual-fallback { margin: 4px 0; padding: 4px; }
+.manual-fallback summary { cursor: pointer; }
+
+/* Tech card claimable highlight */
+.tech-card.claimable { border-color: var(--gold); }
+.tech-card.claimable:hover { background: var(--panel-2); transform: translateY(-2px); box-shadow: 0 4px 8px rgba(215, 181, 109, 0.3); transition: transform 0.1s, box-shadow 0.1s; }
+
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
   .sidebar { max-height: none; border-right: none; border-bottom: 1px solid var(--border); }
+  .player-actions button { font-size: 11px; padding: 5px 8px; }
 }

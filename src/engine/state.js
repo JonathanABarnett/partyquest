@@ -21,6 +21,12 @@ export const DEFAULT_CONFIG = {
   techniquesRowMax: 5,
   questDrawSize: 2,
   movePerTurn: 1,
+  // v1.4 dial — if true, class signature abilities fire automatically at the
+  // top of the owner's turn when their trigger condition is met, and they do
+  // not consume the act slot. Hypothesis: this lifts bottom-class win rates
+  // (cleric/bard/rogue/ranger) and lets tactical play complete both s3 quests
+  // AND class abilities in the same turn.
+  abilitiesFree: false,
 };
 
 export function regionsForPlayerCount(n) {

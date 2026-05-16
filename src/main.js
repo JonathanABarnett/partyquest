@@ -10,8 +10,11 @@ import { pickByPolicy } from './ai/policies.js';
 const stateRoot = document.getElementById('state-root');
 const controlRoot = document.getElementById('control-root');
 
-mountControls(controlRoot, {
-  onNewState: (state) => renderAll(state, stateRoot),
+const api = mountControls(controlRoot, {
+  onNewState: (state) => renderAll(state, stateRoot, {
+    onAction: (action) => api.dispatch(action),
+    onNewGame: () => api.newGame(),
+  }),
 });
 
 // Diagnostic hook for ad-hoc sweeps from the devtools console.

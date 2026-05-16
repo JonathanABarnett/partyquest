@@ -187,19 +187,21 @@ function doUseTechnique(state, player, idx) {
   logEntry(state, `${player.name} uses technique "${t.name}".`);
 }
 
-function doAbility(state, player) {
-  state.actionsThisTurn |= ACT_BIT;
+export function doAbility(state, player) {
+  if (!state.config.abilitiesFree) state.actionsThisTurn |= ACT_BIT;
   player.abilityUsedRound = state.round;
   const cls = player.class;
   switch (cls.ability) {
     case 'heal':
-      // Cleric: heal 2 HP, prefer most wounded ally
+      // Cleric: heal 2 HP self + 1 HP nearest hurt ally (was: just heal one
+      // ally for 2). Self-leverageable so greedy benefits from it.
       {
-        const target = state.players
-          .filter((p) => !p.incapacitated && p.hp < p.maxHp)
-          .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0] || player;
-        applyEffect(state, target, { hp: 2 });
-        logEntry(state, `${player.name} (Cleric) heals ${target.name} for 2.`);
+        applyEffect(state, player, { hp: 2 });
+        const ally = state.players
+          .filter((p) => p.id !== player.id && !p.incapacitated && p.hp < p.maxHp)
+          .sort((a, b) => (a.hp / a.maxHp) - (b.hp / b.maxHp))[0];
+        if (ally) applyEffect(state, ally, { hp: 1 });
+        logEntry(state, `${player.name} (Cleric) heals self +2${ally ? `, ${ally.name} +1` : ''}.`);
       }
       break;
     case 'calm':
@@ -216,11 +218,84 @@ function doAbility(state, player) {
       player.pendingBonus = { stat: null, value: 1, source: 'Druid Rejuvenate' };
       logEntry(state, `${player.name} (Druid) rejuvenates (+1 HP, +1 next check).`);
       break;
+    case 'inspire':
+      // Bard: +1 to own next check AND +1 to a chosen ally's next check
+      // (was: just ally). Self-leverageable.
+      {
+        player.pendingBonus = { stat: null, value: 1, source: 'Bard Inspire (self)' };
+        const ally = state.players.find((p) => p.id !== player.id && !p.incapacitated);
+        if (ally) ally.pendingBonus = { stat: null, value: 1, source: 'Bard Inspire (ally)' };
+        logEntry(state, `${player.name} (Bard) inspires self${ally ? ` + ${ally.name}` : ''} (+1 next check).`);
+      }
+      break;
+    case 'rerollDex':
+    case 'rerollStr':
+      // Rogue / Fighter: stat-agnostic reroll — next failed check is rerolled
+      player.pendingReroll = true;
+      logEntry(state, `${player.name} (${cls.name}) primes reroll for next check.`);
+      break;
+    case 'wildernessBonus':
+      // Ranger: +1 to next check always, +2 in forest/mountain
+      {
+        const loc = locationOf(state, player.location);
+        const isWild = loc && (loc.terrain === 'forest' || loc.terrain === 'mountain');
+        const value = isWild ? 2 : 1;
+        player.pendingBonus = { stat: null, value, source: `Ranger ${isWild ? 'Wilderness' : 'Tracking'}` };
+        logEntry(state, `${player.name} (Ranger) +${value} next check.`);
+      }
+      break;
+    case 'bonusInt':
+      // Wizard: +2 to next INT check
+      player.pendingBonus = { stat: 'INT', value: 2, source: 'Wizard Arcana' };
+      logEntry(state, `${player.name} (Wizard) +2 next INT check.`);
+      break;
     default:
-      // Reroll/bonus abilities apply on next check
       player.pendingBonus = { stat: null, value: 1, source: `${cls.name} ability` };
       logEntry(state, `${player.name} uses ${cls.name} ability (+1 next check).`);
   }
+}
+
+// Auto-trigger an ability at the start of a player's turn if the config
+// `abilitiesFree` is on and the trigger condition is met. Called from
+// game.js advanceTurn.
+export function maybeAutoTriggerAbility(state, player) {
+  if (!state.config.abilitiesFree) return;
+  if (player.abilityUsedRound === state.round) return;
+  if (player.incapacitated) return;
+  const cls = player.class;
+  let trigger = false;
+  switch (cls.ability) {
+    case 'heal':
+      trigger = state.players.some((p) => !p.incapacitated && p.hp <= Math.floor(p.maxHp / 2));
+      break;
+    case 'calm':
+      trigger = (locationOf(state, player.location)?.alert || 0) >= 1;
+      break;
+    case 'inspire':
+      // Fire when ANY ally has a pending check this round (heuristic: any ally
+      // on Final Act tile, or in the round just before doom max)
+      trigger = state.finalAct
+        ? state.players.some((p) => p.id !== player.id && !p.incapacitated && p.location === state.finalAct.location)
+        : state.doomClock >= state.config.doomMax - 2;
+      break;
+    case 'wildernessBonus':
+      {
+        const loc = locationOf(state, player.location);
+        trigger = loc && (loc.terrain === 'forest' || loc.terrain === 'mountain');
+      }
+      break;
+    case 'rejuvenate':
+      trigger = player.hp < player.maxHp;
+      break;
+    case 'rerollStr':
+    case 'rerollDex':
+      trigger = !player.pendingReroll;
+      break;
+    case 'bonusInt':
+      trigger = state.finalAct && player.alignment === 'Neutral' && !player.pendingBonus;
+      break;
+  }
+  if (trigger) doAbility(state, player);
 }
 
 function doFavorAdvance(state, player) {

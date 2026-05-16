@@ -155,6 +155,33 @@ Findings:
 - **`altruistic` exposed a sim degeneracy:** with all players following the same "rush leading alignment" rule and ties broken by insertion order, every game converges to Lawful. The 83% party win is real, but the L · N · C split (83/0/0) is meaningless. Worth fixing in the policy (tiebreak by player's own alignment) before reading further into altruistic numbers.
 - **`tactical` dropped s3 from 58% → 26%.** Using class abilities consumes the player's action; less time committing the betrayal stage. Suggests a real-game design lever: abilities that don't consume the action slot would change the tactical/personal balance.
 
+### v1.4 — playable UI + three follow-up mechanic changes
+
+**Mechanic changes:**
+
+1. **Altruistic tiebreak fixed.** When Final Act progress is tied (every game starts this way), altruistic policy now falls back to the player's own alignment rather than insertion-order default. Alignment split under altruistic is now **L 28.1 · N 28.7 · C 28.1** — perfectly flat — instead of 83/0/0.
+
+2. **`abilitiesFree` config dial** ([state.js](src/engine/state.js)). When on, class abilities fire automatically at the top of the owner's turn (when their trigger condition is met) and don't consume the act slot. Sim findings: solves tactical's s3 problem (26% → 55%) but doesn't close class spread (top classes get the boost too). Exposed as a toggle in the new settings panel; default off.
+
+3. **Bottom-class ability rebalance** ([actions.js](src/engine/actions.js)):
+   - **Cleric** heal: now `self +2 HP + nearest hurt ally +1 HP` (was: one ally +2). Self-leverageable so greedy uses it.
+   - **Bard** inspire: now `self +1 next check + ally +1 next check` (was: ally only). Self-leverageable.
+   - **Rogue / Fighter** reroll: now stat-agnostic — primes a reroll for any next failed check.
+   - **Ranger** wilderness: now `+1 next check always, +2 in forest/mountain` (was: terrain-only).
+   - **Wizard** arcana: now explicitly `+2 next INT check` (was: generic +1).
+
+   Bottom-class wins under greedy with `abilitiesFree=true`: cleric 32.6→35, ranger 31.2→32.2, bard 29.9→32.1, rogue 29.8→31.2. Top classes lift the same amount; remaining ~10pp spread is structural (quest-terrain match), not AI-tunable.
+
+**UI rework for playability** — the tool is no longer just a sim viewer; you can actually play a full game by clicking:
+
+- **Clickable map tiles** — adjacent tiles to active player highlight with a sage-green border and lift on hover; click to move.
+- **Per-player action buttons** on the active player's card replace the awkward dropdown: ⚔ Event, ☾ Rest, ✦ Class ability, ⚝ Spend Favor, ↬ Use technique, ★ Try alignment resolution, ➜ End turn. Colored by intent (gold = high-leverage, soft = neutral, subtle = end-turn).
+- **Final Act overlay** appears at the top of the main pane during Final Act phase with three colored progress bars (one per alignment) and a "X rounds remaining" indicator.
+- **Game-over panel** at the top of the layout shows party win / loss, the resolving alignment, and a per-player scoreboard sorted by individual score with the winner highlighted. Includes a "New Game (same seed +1)" button so you can A/B variants on the same map.
+- **HP bars** with damage→safe gradient on each player card. Pending-bonus and reroll-ready badges show when techniques or abilities have buffed the next check.
+- **Settings panel** (collapsible) lets you sweep `doomMax`, `finalActDC`, `finalActSuccessThreshold`, `finalActWindow`, and `abilitiesFree` without code edits. "Apply & start new game" / "Reset to v1.2 defaults" buttons.
+- **Threat-row tech cards** now have click-to-claim affordance with a gold border when claimable.
+
 ## Next iterations (in priority order)
 
 ## Next iterations (in priority order)

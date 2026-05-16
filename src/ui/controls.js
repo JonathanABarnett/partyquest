@@ -9,6 +9,7 @@ import { activePlayer } from '../engine/state.js';
 
 export function mountControls(root, { onNewState }) {
   let state = null;
+  let configOverride = {}; // user-tweakable dials from settings panel
 
   const ctrl = document.createElement('div');
   ctrl.className = 'control-panel panel';
@@ -41,11 +42,29 @@ export function mountControls(root, { onNewState }) {
       <button id="stepRound">Step 1 round</button>
       <button id="playOut">Play to end</button>
     </div>
-    <div class="control-row">
-      <h4>Manual action (current player)</h4>
-      <select id="actionPick"></select>
-      <button id="actionGo">Do</button>
-    </div>
+    <details class="manual-fallback">
+      <summary class="muted small">Manual action dropdown (fallback)</summary>
+      <div class="control-row">
+        <select id="actionPick"></select>
+        <button id="actionGo">Do</button>
+      </div>
+    </details>
+    <details class="settings-panel">
+      <summary><h4 style="display:inline">Settings</h4></summary>
+      <div class="control-row">
+        <label>Doom max <input type="number" id="setDoomMax" value="10" min="4" max="20"/></label>
+        <label>Final DC <input type="number" id="setFinalDC" value="9" min="4" max="14"/></label>
+        <label>Successes needed <input type="number" id="setThreshold" value="3" min="1" max="6"/></label>
+        <label>Final window <input type="number" id="setWindow" value="3" min="1" max="6"/></label>
+      </div>
+      <div class="control-row">
+        <label class="toggle"><input type="checkbox" id="setAbilitiesFree"/> Class abilities are free (no action cost)</label>
+      </div>
+      <div class="control-row">
+        <button id="applySettings">Apply &amp; start new game</button>
+        <button id="resetSettings">Reset to v1.2 defaults</button>
+      </div>
+    </details>
     <hr/>
     <h4>Monte Carlo Simulation</h4>
     <div class="control-row">
@@ -76,10 +95,25 @@ export function mountControls(root, { onNewState }) {
     const players = Array.from({ length: playerCount }, (_, i) => ({
       name: `P${i + 1}`, policy,
     }));
-    state = setupGame({ seed, players });
+    state = setupGame({ seed, players, config: configOverride });
     refreshActionList();
     onNewState(state);
   }
+
+  // External entry point: dispatch a chosen legal action and step the engine.
+  // Used by render.js to wire clicks on tiles / per-player buttons.
+  function dispatch(action) {
+    if (!state || state.outcome) return;
+    if (state.phase !== 'player' && state.phase !== 'final') return;
+    step(state, () => action);
+    refreshActionList();
+    onNewState(state);
+  }
+
+  function setConfigOverride(patch) {
+    configOverride = { ...configOverride, ...patch };
+  }
+  function getConfigOverride() { return configOverride; }
 
   function decisionFn(s, p, legal) {
     // Default to the player's own policy (manual override happens via UI buttons).
@@ -223,6 +257,27 @@ export function mountControls(root, { onNewState }) {
     }, 10);
   }
 
+  function applySettings() {
+    configOverride = {
+      doomMax: parseInt($('setDoomMax').value, 10) || undefined,
+      finalActDC: parseInt($('setFinalDC').value, 10) || undefined,
+      finalActSuccessThreshold: parseInt($('setThreshold').value, 10) || undefined,
+      finalActWindow: parseInt($('setWindow').value, 10) || undefined,
+      abilitiesFree: $('setAbilitiesFree').checked,
+    };
+    newGame();
+  }
+
+  function resetSettings() {
+    $('setDoomMax').value = 10;
+    $('setFinalDC').value = 9;
+    $('setThreshold').value = 3;
+    $('setWindow').value = 3;
+    $('setAbilitiesFree').checked = false;
+    configOverride = {};
+    newGame();
+  }
+
   $('newGame').addEventListener('click', newGame);
   $('stepOne').addEventListener('click', stepOne);
   $('stepTurn').addEventListener('click', stepTurn);
@@ -232,6 +287,8 @@ export function mountControls(root, { onNewState }) {
   $('runSim').addEventListener('click', runSim);
   $('runVariance').addEventListener('click', runVariance);
   $('runSweep').addEventListener('click', runSweepPreset);
+  $('applySettings').addEventListener('click', applySettings);
+  $('resetSettings').addEventListener('click', resetSettings);
 
   // Start with one game ready to go
   newGame();
@@ -239,6 +296,10 @@ export function mountControls(root, { onNewState }) {
   return {
     refresh: refreshActionList,
     getState: () => state,
+    dispatch,
+    setConfigOverride,
+    getConfigOverride,
+    newGame,
   };
 }
 

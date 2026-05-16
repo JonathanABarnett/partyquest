@@ -2,7 +2,7 @@
 // step state forward one action; advance auto-runs World/End phases.
 
 import { activePlayer, alivePlayers, logEntry } from './state.js';
-import { legalActions, performAction, turnDone } from './actions.js';
+import { legalActions, performAction, turnDone, maybeAutoTriggerAbility } from './actions.js';
 import { applyEffect } from './resolution.js';
 
 // Step the game forward by ONE atomic decision. If the current phase doesn't
@@ -27,6 +27,9 @@ export function step(state, decisionFn) {
       endRound(state);
       return 'end';
     }
+    // Auto-fire ability at top of turn if the config dial is on and the
+    // trigger condition is met. Free of the act-slot cost.
+    if (state.actionsThisTurn === 0) maybeAutoTriggerAbility(state, p);
     const legal = legalActions(state);
     const choice = decisionFn(state, p, legal);
     performAction(state, choice);

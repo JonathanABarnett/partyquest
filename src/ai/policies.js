@@ -126,7 +126,14 @@ function altruistic(state, player, legal) {
         return moves[0];
       }
     } else {
-      const leading = Object.entries(state.finalAct.progress).sort((a, b) => b[1] - a[1])[0]?.[0] || player.alignment;
+      // Pick the leading alignment IF one is actually ahead; on ties (e.g. all
+      // zero at the start) fall back to the player's own alignment so altruists
+      // don't all bandwagon onto the same entry-order-default. This was a sim
+      // degeneracy in v1.3 — every game was converging to Lawful.
+      const sorted = Object.entries(state.finalAct.progress).sort((a, b) => b[1] - a[1]);
+      const top = sorted[0];
+      const second = sorted[1];
+      const leading = top && (!second || top[1] > second[1]) ? top[0] : player.alignment;
       const choice = legal.find((a) => a.type === 'final_check' && a.alignment === leading);
       if (choice) return choice;
     }

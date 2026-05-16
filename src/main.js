@@ -14,6 +14,7 @@ const api = mountControls(controlRoot, {
   onNewState: (state) => renderAll(state, stateRoot, {
     onAction: (action) => api.dispatch(action),
     onNewGame: () => api.newGame(),
+    onReplaySeed: (seed) => api.replaySeed(seed),
   }),
 });
 

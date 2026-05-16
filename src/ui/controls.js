@@ -21,14 +21,22 @@ export function mountControls(root, { onNewState }) {
           <option>2</option><option selected>3</option><option>4</option>
         </select>
       </label>
-      <label>Policy
+      <label>AI policy
         <select id="policy">
-          <option value="greedy" selected>greedy</option>
-          <option value="random">random</option>
+          <option value="opportunist" selected>opportunist</option>
+          <option value="greedy">greedy</option>
+          <option value="tactical">tactical</option>
           <option value="altruistic">altruistic</option>
           <option value="mixed">mixed</option>
-          <option value="tactical">tactical</option>
-          <option value="opportunist">opportunist</option>
+          <option value="random">random</option>
+        </select>
+      </label>
+      <label>Humans
+        <select id="humanCount" title="How many players are humans (manual). The rest use the AI policy.">
+          <option value="0">All AI</option>
+          <option value="1" selected>P1 only</option>
+          <option value="2">P1 + P2</option>
+          <option value="all">All hot-seat</option>
         </select>
       </label>
       <label>Seed
@@ -88,19 +96,40 @@ export function mountControls(root, { onNewState }) {
 
   const $ = (id) => ctrl.querySelector('#' + id);
 
-  function newGame() {
+  function newGame(opts = {}) {
     const playerCount = parseInt($('playerCount').value, 10);
-    const policy = $('policy').value;
-    const seed = parseInt($('seed').value, 10) || 1;
+    const aiPolicy = $('policy').value;
+    const humanSel = $('humanCount').value;
+    const humans = humanSel === 'all' ? playerCount : Math.min(playerCount, parseInt(humanSel, 10));
+    const seed = opts.seed != null ? opts.seed : (parseInt($('seed').value, 10) || 1);
+    if (opts.seed != null) $('seed').value = String(opts.seed);
     const players = Array.from({ length: playerCount }, (_, i) => ({
-      name: `P${i + 1}`, policy,
+      name: `P${i + 1}`,
+      policy: i < humans ? 'manual' : aiPolicy,
     }));
     state = setupGame({ seed, players, config: configOverride });
-    // Auto-run World phase 1 so the user lands in Player phase with action
-    // buttons live. Otherwise the page looks dead on load.
+    // Auto-run World phase 1 so the page loads in Player phase with action
+    // buttons live, then auto-advance through any leading AI players so the
+    // first manual player sees the action UI immediately.
     if (state.phase === 'world') step(state, decisionFn);
+    autoAdvanceAI();
     refreshActionList();
     onNewState(state);
+  }
+
+  // Auto-step through any non-manual (AI) players. Stops at the next manual
+  // player, end of round, or game over. Called after every manual dispatch
+  // and after newGame so the human only sees their own turns.
+  function autoAdvanceAI() {
+    if (!state) return;
+    let safety = 2000;
+    while (safety-- > 0 && !state.outcome) {
+      if (state.phase === 'world') { step(state, decisionFn); continue; }
+      if (state.phase !== 'player' && state.phase !== 'final') break;
+      const ap = activePlayer(state);
+      if (!ap || ap.policy === 'manual') break;
+      step(state, decisionFn);
+    }
   }
 
   // External entry point: dispatch a chosen legal action and step the engine.
@@ -109,6 +138,8 @@ export function mountControls(root, { onNewState }) {
     if (!state || state.outcome) return;
     if (state.phase !== 'player' && state.phase !== 'final') return;
     step(state, () => action);
+    // After a manual action, run any AI players whose turn comes up next.
+    autoAdvanceAI();
     refreshActionList();
     onNewState(state);
   }
@@ -123,8 +154,16 @@ export function mountControls(root, { onNewState }) {
     return pickByPolicy(p.policy === 'manual' ? 'greedy' : p.policy, s, p, legal);
   }
 
+  // Halt-at-manual helper. The play/step buttons should never auto-decide for
+  // a manual player — they wait for the human to click.
+  function isManualWaiting() {
+    if (!state || state.outcome) return false;
+    if (state.phase !== 'player' && state.phase !== 'final') return false;
+    return activePlayer(state)?.policy === 'manual';
+  }
+
   function stepOne() {
-    if (!state || state.outcome) return;
+    if (!state || state.outcome || isManualWaiting()) return;
     step(state, decisionFn);
     refreshActionList();
     onNewState(state);
@@ -135,7 +174,7 @@ export function mountControls(root, { onNewState }) {
     const startIdx = state.currentPlayerIdx;
     const startRound = state.round;
     let safety = 200;
-    while (safety-- > 0 && !state.outcome && state.round === startRound && state.currentPlayerIdx === startIdx) {
+    while (safety-- > 0 && !state.outcome && !isManualWaiting() && state.round === startRound && state.currentPlayerIdx === startIdx) {
       step(state, decisionFn);
     }
     refreshActionList();
@@ -146,7 +185,7 @@ export function mountControls(root, { onNewState }) {
     if (!state || state.outcome) return;
     const startRound = state.round;
     let safety = 2000;
-    while (safety-- > 0 && !state.outcome && state.round === startRound) {
+    while (safety-- > 0 && !state.outcome && !isManualWaiting() && state.round === startRound) {
       step(state, decisionFn);
     }
     refreshActionList();
@@ -156,7 +195,7 @@ export function mountControls(root, { onNewState }) {
   function playOut() {
     if (!state) return;
     let safety = 10000;
-    while (safety-- > 0 && !state.outcome) {
+    while (safety-- > 0 && !state.outcome && !isManualWaiting()) {
       step(state, decisionFn);
     }
     refreshActionList();
@@ -303,6 +342,7 @@ export function mountControls(root, { onNewState }) {
     setConfigOverride,
     getConfigOverride,
     newGame,
+    replaySeed: (seed) => newGame({ seed }),
   };
 }
 

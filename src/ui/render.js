@@ -4,6 +4,7 @@
 
 import { activePlayer, locationOf } from '../engine/state.js';
 import { legalActions } from '../engine/actions.js';
+import { EVENTS } from '../engine/data.js';
 
 // Terrain visual catalog — gradient + icon + flavor text. Used by tile render.
 const TERRAIN = {
@@ -89,12 +90,26 @@ function renderGameOver(state, ctx) {
       <div class="muted small">${state.outcome.partyWin ? `Resolved ${state.outcome.resolvedBy}` : `(${state.outcome.reason})`}</div>
     </div>
     ${scoresHtml}
+    <div class="seed-line muted small">Seed: <code>${state.seed}</code>
+      <button class="link-btn" data-action="copy-seed" title="Copy seed to clipboard">copy</button>
+    </div>
     <div class="gameover-actions">
-      <button class="primary" data-action="new-game">New Game (same seed +1)</button>
+      <button class="primary" data-action="replay-seed" title="Same map, same threats — different decisions">↻ Replay this seed</button>
+      <button data-action="new-game" title="Same map ID + 1; a fresh game">→ New game (seed +1)</button>
     </div>
   `;
+  el.querySelector('[data-action="replay-seed"]').addEventListener('click', () => {
+    ctx.onReplaySeed?.(state.seed);
+  });
   el.querySelector('[data-action="new-game"]').addEventListener('click', () => {
     ctx.onNewGame?.();
+  });
+  el.querySelector('[data-action="copy-seed"]').addEventListener('click', async (e) => {
+    try {
+      await navigator.clipboard.writeText(String(state.seed));
+      e.target.textContent = 'copied ✓';
+      setTimeout(() => { e.target.textContent = 'copy'; }, 1500);
+    } catch { /* clipboard not granted; silent */ }
   });
   return el;
 }
@@ -201,7 +216,13 @@ function renderMap(state, onAction) {
     }
     if (active && active.location === loc.id) tile.classList.add('here');
     const here = state.players.filter((p) => p.location === loc.id && !p.incapacitated);
-    tile.title = `${loc.name} (${t.label}) — ${t.flavor}${moveOptions.has(loc.id) ? ' · click to move' : ''}`;
+    // Preview which events can spawn at this terrain (filter EVENTS by tile terrain or universal).
+    const eventSamples = EVENTS
+      .filter((e) => e.terrain == null || e.terrain === loc.terrain)
+      .slice(0, 4)
+      .map((e) => e.name)
+      .join(', ');
+    tile.title = `${loc.name} — ${t.label}\n${t.flavor}\nPossible events: ${eventSamples}${moveOptions.has(loc.id) ? '\n→ click to move' : ''}`;
     tile.innerHTML = `
       <div class="tile-icon">${t.icon}</div>
       <div class="tile-body">
@@ -244,6 +265,10 @@ function renderPlayers(state, onAction) {
     const hpBarPct = (p.hp / p.maxHp) * 100;
     const icon = CLASS_ICON[p.class.id] || '◆';
     const raceColor = RACE_COLOR[p.race.id] || '#d4a574';
+    const abilityOnCooldown = p.abilityUsedRound === state.round;
+    const abilityStatus = abilityOnCooldown
+      ? `<span class="ability-status used" title="${p.class.name} ability already used this round; ready again next round.">⏳ ability cooling</span>`
+      : `<span class="ability-status ready" title="${p.class.name} ability is ready.">✦ ability ready</span>`;
 
     let actionBtns = '';
     if (isActive) {
@@ -270,6 +295,7 @@ function renderPlayers(state, onAction) {
         <div class="muted small">${q.completed ? '✓ ' : ''}Quest: <b>${q.headline}</b></div>
         <div class="stages">${stagesPips}</div>
       </div>
+      <div class="player-status-row">${abilityStatus}</div>
       ${p.techniques.length ? `<div class="player-techs muted small">Techs held: ${p.techniques.map((t) => t.name).join(', ')}</div>` : ''}
       ${isActive ? `<div class="player-actions">${actionBtns}</div>` : ''}
     `;

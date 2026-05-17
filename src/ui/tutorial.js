@@ -32,19 +32,48 @@ function escapeHtmlLite(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// Pull the most recent AI lines from the log (everything since the last
-// `End of round X` marker or end of log, whichever was earlier).
+function abilityText(ab) {
+  switch (ab) {
+    case 'wildernessBonus': return '+1 to next check, +2 in forest or mountain';
+    case 'heal':            return 'heal self +2 HP and nearest hurt ally +1 HP';
+    case 'calm':            return 'reduce alert on current tile by 1';
+    case 'rejuvenate':      return 'heal +1 HP and +1 on next check';
+    case 'inspire':         return '+1 on own next check AND on an ally\'s next check';
+    case 'rerollStr':
+    case 'rerollDex':       return 'prime a reroll for the next failed check (any stat)';
+    case 'bonusInt':        return '+2 on the next INT check';
+    default:                return `${ab} (see ability popover)`;
+  }
+}
+
+// Find P1's most recent roll result in the log — used by the "How rolls work" step.
+function lastP1Roll(state) {
+  const log = state?.log || [];
+  for (let i = log.length - 1; i >= 0; i--) {
+    const m = log[i].msg;
+    if (/^P1.*(rolled|→ (success|failure|critical|fumble))/.test(m)) return m;
+  }
+  return log[log.length - 1]?.msg || '';
+}
+
+// Pull AI (non-P1) log entries from the LAST COMPLETED round — walks backward
+// past the most recent "End of round" boundary to find P2/P3 entries.
 function recentAIBullets(state) {
-  const log = state.log || [];
-  // Walk backward until we cross an "End of round" entry or hit 12 lines.
+  const log = state?.log || [];
+  // Find the index of the most recent "End of round N" entry
+  let endIdx = log.length - 1;
+  while (endIdx >= 0 && !log[endIdx].msg.startsWith('End of round')) endIdx--;
+  if (endIdx < 0) return ''; // no completed round yet
+  // Collect non-P1 player entries from before that boundary
   const lines = [];
-  for (let i = log.length - 1; i >= 0 && lines.length < 12; i--) {
-    if (/^End of round/.test(log[i].msg)) break;
-    if (/^Round \d+ — Threat/.test(log[i].msg)) break;
-    if (/^P[1-9]/.test(log[i].msg)) lines.unshift(log[i].msg);
+  for (let i = endIdx - 1; i >= 0 && lines.length < 8; i--) {
+    const m = log[i].msg;
+    if (/^End of round|^Round \d+ — Threat/.test(m)) break;
+    if (/^P[2-9]\d*/.test(m)) lines.unshift(m); // P2, P3, … but not P1
   }
   return lines.map((m) => `<li>${escapeHtmlLite(m)}</li>`).join('');
 }
+
 
 const STEPS = [
   // ---------- INTRO ----------
@@ -69,10 +98,10 @@ const STEPS = [
       const me = state.players?.find((p) => p.policy === 'manual');
       const cls = me?.class?.name || 'hero';
       const align = me?.alignment || '';
-      const ability = me?.class?.ability || '';
+      const abilDesc = abilityText(me?.class?.ability || '');
       return help({
         who: `You're P1, a <b>${me?.race?.name || ''} ${cls}</b> aligned <b>${align}</b>. Hover the class name on your card for a stat/ability popover.`,
-        what: `Each class has a +2 primary stat, +1 secondary, +0 elsewhere, plus a once-per-round signature ability (<code>${ability}</code>).`,
+        what: `Each class has a +2 primary stat, +1 secondary, +0 elsewhere, plus a once-per-round signature ability — yours: <em>${abilDesc}</em>.`,
         where: `Look at the highlighted player card — that's you. P2 and P3 use the <em>opportunist</em> AI policy (cooperative early, ambitious late).`,
         why: `Your class shapes which events you're good at. Your alignment shapes how you score in the Final Act (Lawful = STR/DEX, Neutral = INT/STR, Chaotic = CHA/INT).`,
       });
@@ -126,12 +155,12 @@ const STEPS = [
     id: 'r1-rolls',
     title: 'How rolls work',
     body: (state) => {
-      const lastLog = state?.log?.slice(-1)[0]?.msg || '';
+      const roll = lastP1Roll(state);
       return help({
-        after: `<div class="t-recent">Latest: <em>${escapeHtmlLite(lastLog)}</em></div>`,
-        what: `Every check is <b>2d6 + stat bonus</b> vs the event's DC. The dice icons in the log show what you rolled. Double-6 is a crit (success + extra reward). Snake-eyes (double 1) is a fumble.`,
-        where: `Look at the latest log line below — it's color-coded: sage = success, rose = failure, gold-bordered = crit, red-bordered = fumble.`,
-        why: `Your stat bonus is the only consistent edge you have. Picking events that hit your strong stats matters.`,
+        after: roll ? `<div class="t-recent">Your roll: <em>${escapeHtmlLite(roll)}</em></div>` : '',
+        what: `Every check is <b>2d6 + stat bonus</b> vs the event's DC. The dice icons in the log show what you rolled. Double-6 is a <b>crit</b> (bonus reward). Snake-eyes (double 1) is a <b>fumble</b> (extra consequence).`,
+        where: `Look at the log below — lines are color-coded: <em>sage = success</em>, <em>rose = failure</em>, gold-bordered = crit, red-bordered = fumble.`,
+        why: `Your stat bonus is your consistent edge. Pick approaches that hit your high stats — a DEX check with +2 DEX beats a STR check at +0 every time.`,
       });
     },
     target: '.log-panel',
@@ -154,7 +183,9 @@ const STEPS = [
     title: 'Your AI partners played (round 1)',
     body: (state) => {
       const bullets = recentAIBullets(state);
-      const ul = bullets ? `<ul class="tutorial-list">${bullets}</ul>` : `<div class="muted">(see the log below for full play-by-play)</div>`;
+      const ul = bullets
+        ? `<ul class="tutorial-list">${bullets}</ul>`
+        : `<div class="muted small">Your AI partners took quiet turns — scroll the log to see the details.</div>`;
       return help({
         after: `<div class="t-narration">${ul}</div>`,
         who: `P2 and P3 just took their turns automatically.`,
@@ -217,7 +248,9 @@ const STEPS = [
     title: 'AI partners played (round 2)',
     body: (state) => {
       const bullets = recentAIBullets(state);
-      const ul = bullets ? `<ul class="tutorial-list">${bullets}</ul>` : `<div class="muted">(see the log)</div>`;
+      const ul = bullets
+        ? `<ul class="tutorial-list">${bullets}</ul>`
+        : `<div class="muted small">Your AI partners took quiet turns — scroll the log to see the details.</div>`;
       return help({
         after: `<div class="t-narration">${ul}</div>`,
         what: `Another World phase fired (doom +1 or more) and your partners took their second turns. Notice the Techniques Row at the bottom — each threat the world plays gets added there for you to claim.`,

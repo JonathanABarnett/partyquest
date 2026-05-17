@@ -713,21 +713,9 @@ export function mountControls(root, { onNewState }) {
   // Re-thread the new wrapper into the tutorial renderHook so it picks up the latest one.
   tutorial.setRenderHook(() => onNewState(state));
 
-  // Start with one game ready to go
+  // Start with one game ready to go (welcome screen owns the real first-
+  // game start; this just ensures controls are bound and state exists).
   newGame();
-
-  // Start: always begin with a fresh game. If a save exists, the Resume
-  // button in the sidebar lets the player jump back into it explicitly.
-  // Persistence only fires from inside dispatch(), so this initial fresh
-  // game does NOT overwrite the existing save.
-  newGame();
-  if (tutorial.isFirstVisit()) {
-    setTimeout(() => {
-      clearSavedState();
-      startTutorialGame();
-      tutorial.start();
-    }, 50);
-  }
 
   return {
     refresh: refreshActionList,

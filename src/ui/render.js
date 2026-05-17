@@ -40,8 +40,15 @@ export function renderAll(state, root, ctx = {}) {
   root.appendChild(renderHeader(state));
   root.appendChild(renderHint(state));
   if (state.finalAct) root.appendChild(renderFinalActBanner(state));
-  root.appendChild(renderMap(state, onAction));
-  root.appendChild(renderPlayers(state, onAction));
+
+  // Two-column game grid: map left | players right — keeps both visible
+  // without the map ring dominating the full viewport height.
+  const grid = document.createElement('div');
+  grid.className = 'game-grid';
+  grid.appendChild(renderMap(state, onAction));
+  grid.appendChild(renderPlayers(state, onAction));
+  root.appendChild(grid);
+
   root.appendChild(renderTechniquesRow(state, onAction));
   root.appendChild(renderLog(state));
   // After the DOM is mounted, apply pulse to the tutorial target element.
